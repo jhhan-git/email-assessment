@@ -1,0 +1,192 @@
+:root {
+  --bg: #f4f6f8;
+  --surface: #ffffff;
+  --surface-2: #f8fafc;
+  --text: #1f2933;
+  --muted: #64748b;
+  --line: #e2e8f0;
+  --primary: #1a73e8;
+  --primary-hover: #155fc4;
+  --primary-soft: #e8f0fe;
+  --danger: #d93025;
+  --danger-soft: #fce8e6;
+  --ok: #188038;
+  --ok-soft: #e6f4ea;
+  --radius: 10px;
+  --shadow: 0 1px 3px rgba(15, 23, 42, .08), 0 4px 16px rgba(15, 23, 42, .06);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+}
+button, input, textarea { font: inherit; color: inherit; }
+
+.topbar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  padding: 14px 16px;
+}
+.topbar-inner { max-width: 920px; margin: 0 auto; display: flex; align-items: center; gap: 10px; }
+.topbar h1 { font-size: 18px; margin: 0; font-weight: 700; }
+.topbar .spacer { flex: 1; }
+.logo {
+  width: 30px; height: 30px; border-radius: 8px; background: var(--primary); color: #fff;
+  display: grid; place-items: center; flex: none;
+}
+
+main { max-width: 920px; margin: 20px auto 60px; padding: 0 16px; }
+
+.card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); }
+.card + .card { margin-top: 16px; }
+
+.notice {
+  padding: 12px 14px; border-radius: 8px; margin-bottom: 16px; font-size: 14px;
+  background: var(--danger-soft); color: var(--danger);
+}
+.notice.info { background: var(--primary-soft); color: #174ea6; }
+
+/* 학생 정보 */
+.student { display: flex; flex-wrap: wrap; gap: 12px; padding: 14px 16px; align-items: center; }
+.student .title { font-weight: 700; margin-right: 6px; }
+.student label { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; }
+.student input {
+  width: 140px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface);
+}
+.student input:focus { outline: 2px solid var(--primary); outline-offset: -1px; border-color: transparent; }
+
+/* 편지 쓰기 */
+.compose-head {
+  background: #404b5a; color: #fff; padding: 10px 16px; border-radius: var(--radius) var(--radius) 0 0;
+  font-size: 14px; font-weight: 600; display: flex; justify-content: space-between; align-items: center;
+}
+.compose-head .saved { font-weight: 400; opacity: .8; font-size: 13px; }
+
+.row {
+  display: flex; align-items: flex-start; gap: 8px; border-bottom: 1px solid var(--line);
+  padding: 6px 16px; min-height: 44px;
+}
+.row > .label { width: 84px; flex: none; color: var(--muted); font-size: 14px; padding-top: 7px; }
+.row > .label small { display: block; font-size: 11px; color: #94a3b8; line-height: 1.2; }
+.row input.plain {
+  flex: 1; border: 0; outline: 0; padding: 7px 0; background: transparent; min-width: 0;
+}
+
+.chips { flex: 1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; padding: 3px 0; cursor: text; }
+.chips input { flex: 1; min-width: 160px; border: 0; outline: 0; padding: 4px 0; background: transparent; }
+.chip {
+  display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 16px;
+  padding: 2px 4px 2px 10px; font-size: 14px;
+}
+.chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip.invalid { background: var(--danger-soft); border-color: #f5b5ae; color: var(--danger); }
+.chip button {
+  border: 0; background: transparent; cursor: pointer; width: 20px; height: 20px; border-radius: 50%;
+  display: grid; place-items: center; color: var(--muted); padding: 0;
+}
+.chip button:hover { background: rgba(0,0,0,.08); }
+
+.body-area { padding: 12px 16px; }
+.body-area textarea {
+  width: 100%; border: 0; outline: 0; resize: vertical; min-height: 300px; background: transparent; line-height: 1.7;
+}
+.sig-area { margin: 0 16px; border-top: 1px dashed var(--line); padding: 10px 0; }
+.sig-area .label { color: var(--muted); font-size: 13px; margin-bottom: 4px; }
+.sig-area textarea {
+  width: 100%; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; min-height: 80px;
+  resize: vertical; background: var(--surface-2); line-height: 1.6;
+}
+.sig-area textarea:focus { outline: 2px solid var(--primary); outline-offset: -1px; border-color: transparent; }
+
+.attach-list { padding: 4px 16px 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.attach {
+  display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 8px;
+  padding: 6px 6px 6px 10px; background: var(--surface-2); font-size: 14px; max-width: 100%;
+}
+.attach .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+.attach .size { color: var(--muted); font-size: 12px; }
+.attach a { color: var(--primary); text-decoration: none; }
+.attach a:hover { text-decoration: underline; }
+
+.dropzone {
+  margin: 10px 16px 0; border: 2px dashed var(--line); border-radius: 8px; padding: 14px; text-align: center;
+  color: var(--muted); font-size: 14px; display: none;
+}
+.dropzone.active { display: block; border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
+
+.toolbar { display: flex; align-items: center; gap: 8px; padding: 14px 16px; flex-wrap: wrap; }
+.toolbar .spacer { flex: 1; }
+
+.btn {
+  border: 1px solid var(--line); background: var(--surface); padding: 8px 16px; border-radius: 20px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px; font-size: 14px; white-space: nowrap;
+}
+.btn:hover { background: var(--surface-2); }
+.btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; padding: 9px 24px; }
+.btn.primary:hover { background: var(--primary-hover); }
+.btn.danger { color: var(--danger); }
+.btn:disabled { opacity: .55; cursor: not-allowed; }
+.btn svg { width: 18px; height: 18px; }
+
+/* 모달 */
+.modal-bg {
+  position: fixed; inset: 0; background: rgba(15, 23, 42, .45); display: none; align-items: center;
+  justify-content: center; padding: 16px; z-index: 50;
+}
+.modal-bg.open { display: flex; }
+.modal {
+  background: var(--surface); border-radius: 12px; width: 100%; max-width: 760px; max-height: calc(100vh - 32px);
+  display: flex; flex-direction: column; box-shadow: 0 20px 50px rgba(0,0,0,.25);
+}
+.modal header { padding: 16px 18px; border-bottom: 1px solid var(--line); font-weight: 700; display: flex; justify-content: space-between; align-items: center; }
+.modal .content { padding: 16px 18px; overflow: auto; }
+.modal footer { padding: 12px 18px; border-top: 1px solid var(--line); display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.modal .x { border: 0; background: transparent; font-size: 22px; cursor: pointer; color: var(--muted); line-height: 1; }
+
+.warn-list { margin: 0 0 14px; padding: 10px 14px 10px 30px; background: #fef7e0; color: #8a5a00; border-radius: 8px; font-size: 14px; }
+.err-list { margin: 0 0 14px; padding: 10px 14px 10px 30px; background: var(--danger-soft); color: var(--danger); border-radius: 8px; font-size: 14px; }
+
+/* 받은 메일처럼 보기 */
+.mailview .subj { font-size: 20px; font-weight: 700; margin: 0 0 12px; word-break: break-word; }
+.mailview .subj.empty { color: var(--muted); font-weight: 400; font-style: italic; }
+.mailview dl { display: grid; grid-template-columns: 84px 1fr; gap: 4px 10px; margin: 0 0 14px; font-size: 14px; }
+.mailview dt { color: var(--muted); }
+.mailview dd { margin: 0; word-break: break-all; }
+.mailview .body {
+  white-space: pre-wrap; word-break: break-word; border-top: 1px solid var(--line); padding-top: 14px; line-height: 1.75;
+}
+.mailview .sig { white-space: pre-wrap; color: #475569; margin-top: 16px; padding-top: 10px; border-top: 1px dashed var(--line); font-size: 14px; }
+.mailview .files { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 8px; }
+
+.success { text-align: center; padding: 48px 20px; }
+.success .check {
+  width: 64px; height: 64px; border-radius: 50%; background: var(--ok-soft); color: var(--ok);
+  display: grid; place-items: center; margin: 0 auto 16px;
+}
+.success h2 { margin: 0 0 8px; }
+.success p { color: var(--muted); margin: 4px 0; }
+.success .receipt { display: inline-block; margin-top: 14px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 16px; text-align: left; font-size: 14px; }
+
+.hidden { display: none !important; }
+
+@media (max-width: 600px) {
+  .row { flex-direction: column; gap: 0; padding: 6px 16px; }
+  .row > .label { width: auto; padding-top: 2px; }
+  .row > .label small { display: inline; margin-left: 4px; }
+  .chips input { min-width: 120px; }
+  .student input { width: 120px; }
+  .mailview dl { grid-template-columns: 70px 1fr; }
+  .attach .name { max-width: 180px; }
+}
+
+@media print {
+  body { background: #fff; }
+  .topbar, .no-print { display: none !important; }
+  .card { box-shadow: none; }
+}

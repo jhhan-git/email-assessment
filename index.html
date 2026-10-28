@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>이메일 작성 수행평가</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="config.js"></script>
+  <script src="vendor/supabase.js"></script>
+</head>
+<body>
+  <div class="topbar">
+    <div class="topbar-inner">
+      <div class="logo" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>
+      </div>
+      <h1 id="appTitle">업무용 이메일 작성 수행평가</h1>
+    </div>
+  </div>
+
+  <main>
+    <div id="configNotice" class="notice hidden">
+      config.js에 Supabase 주소와 키가 아직 입력되지 않았습니다. 지금은 작성·미리보기만 되고 제출은 되지 않습니다.
+    </div>
+
+    <section id="composeView">
+      <div class="card student">
+        <span class="title">응시자 정보</span>
+        <label>학번 <input id="studentNo" inputmode="numeric" maxlength="20" placeholder="예: 20315" autocomplete="off"></label>
+        <label>이름 <input id="studentName" maxlength="30" placeholder="예: 홍길동" autocomplete="off"></label>
+      </div>
+
+      <div class="card" id="composeCard">
+        <div class="compose-head">
+          <span>새 메일 작성</span>
+          <span class="saved" id="savedAt"></span>
+        </div>
+
+        <div class="row">
+          <div class="label">보내는 사람</div>
+          <input class="plain" id="sender" maxlength="200" placeholder="예: 홍길동 <gildong@company.co.kr>" autocomplete="off">
+        </div>
+        <div class="row">
+          <div class="label">받는 사람</div>
+          <div class="chips" data-field="to"><input type="text" placeholder="이메일 주소 입력 후 Enter" autocomplete="off"></div>
+        </div>
+        <div class="row">
+          <div class="label">참조<small>CC</small></div>
+          <div class="chips" data-field="cc"><input type="text" autocomplete="off"></div>
+        </div>
+        <div class="row">
+          <div class="label">숨은 참조<small>BCC</small></div>
+          <div class="chips" data-field="bcc"><input type="text" autocomplete="off"></div>
+        </div>
+        <div class="row">
+          <div class="label">제목</div>
+          <input class="plain" id="subject" maxlength="300" autocomplete="off">
+        </div>
+
+        <div class="body-area">
+          <textarea id="body" maxlength="20000" placeholder="본문을 입력하세요."></textarea>
+        </div>
+
+        <div class="sig-area">
+          <div class="label">서명</div>
+          <textarea id="signature" maxlength="2000" placeholder="예:&#10;홍길동 드림&#10;○○상사 영업팀 | 010-0000-0000 | gildong@company.co.kr"></textarea>
+        </div>
+
+        <div class="attach-list" id="attachList"></div>
+        <div class="dropzone" id="dropzone">여기에 파일을 놓으면 첨부됩니다</div>
+
+        <div class="toolbar">
+          <button class="btn primary" id="sendBtn" type="button">보내기</button>
+          <button class="btn" id="attachBtn" type="button" title="파일 첨부">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21.4 11.1-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/></svg>
+            파일 첨부
+          </button>
+          <button class="btn" id="previewBtn" type="button">미리보기</button>
+          <span class="spacer"></span>
+          <button class="btn danger" id="resetBtn" type="button">모두 지우기</button>
+          <input type="file" id="fileInput" multiple hidden>
+        </div>
+      </div>
+    </section>
+
+    <section id="doneView" class="card success hidden">
+      <div class="check">
+        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6 9 17l-5-5"/></svg>
+      </div>
+      <h2>제출이 완료되었습니다</h2>
+      <p>선생님께 메일이 정상적으로 제출되었습니다.</p>
+      <div class="receipt" id="receipt"></div>
+      <p style="margin-top:20px"><button class="btn" id="newBtn" type="button">새로 작성하기</button></p>
+    </section>
+  </main>
+
+  <div class="modal-bg" id="modal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <header><span id="modalTitle">미리보기</span><button class="x" data-close aria-label="닫기">×</button></header>
+      <div class="content" id="modalContent"></div>
+      <footer id="modalFooter"></footer>
+    </div>
+  </div>
+
+<script>
+(function () {
+  const CFG = Object.assign({ TITLE: "업무용 이메일 작성 수행평가", MAX_FILES: 5, MAX_FILE_MB: 10 }, window.APP_CONFIG || {});
+  const DRAFT_KEY = "email-assessment-draft-v1";
+  const $ = (id) => document.getElementById(id);
+
+  document.title = CFG.TITLE;
+  $("appTitle").textContent = CFG.TITLE;
+
+  const configured = !!(CFG.SUPABASE_URL && CFG.SUPABASE_ANON_KEY && window.supabase);
+  const sb = configured ? window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, { auth: { persistSession: false } }) : null;
+  if (!configured) $("configNotice").classList.remove("hidden");
+
+  // ---------- 이메일 주소 입력(칩) ----------
+  function extractEmail(s) {
+    const m = s.match(/<([^<>]+)>\s*$/);
+    return (m ? m[1] : s).trim();
+  }
+  function isValidEmail(s) {
+    return /^[^\s@<>(),;]+@[^\s@<>(),;]+\.[A-Za-z]{2,}$/.test(extractEmail(s));
+  }
+
+  const chipFields = {};
+  document.querySelectorAll(".chips").forEach((box) => {
+    const input = box.querySelector("input");
+    let items = [];
+
+    function render() {
+      box.querySelectorAll(".chip").forEach((c) => c.remove());
+      items.forEach((addr, i) => {
+        const chip = document.createElement("span");
+        chip.className = "chip" + (isValidEmail(addr) ? "" : " invalid");
+        chip.title = isValidEmail(addr) ? addr : "올바른 이메일 형식이 아닙니다";
+        const text = document.createElement("span");
+        text.textContent = addr;
+        const x = document.createElement("button");
+        x.type = "button";
+        x.setAttribute("aria-label", addr + " 삭제");
+        x.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M18 6 6 18M6 6l12 12"/></svg>';
+        x.addEventListener("click", (e) => { e.stopPropagation(); items.splice(i, 1); render(); saveDraft(); input.focus(); });
+        chip.append(text, x);
+        box.insertBefore(chip, input);
+      });
+    }
+    function commit() {
+      const raw = input.value;
+      // "이름 <주소>" 형식 안의 쉼표는 보존하고, 그 외 쉼표·세미콜론·줄바꿈으로 분리
+      const parts = raw.split(/[,;\n]+(?![^<]*>)/).map((s) => s.trim()).filter(Boolean);
+      if (parts.length) { items.push(...parts); input.value = ""; render(); saveDraft(); }
+    }
+    input.addEventListener("keydown", (e) => {
+      if (e.isComposing) return;
+      if (e.key === "Enter" || e.key === "," || e.key === ";" || e.key === "Tab" && input.value.trim()) {
+        e.preventDefault(); commit();
+      } else if (e.key === "Backspace" && !input.value && items.length) {
+        items.pop(); render(); saveDraft();
+      }
+    });
+    input.addEventListener("blur", commit);
+    input.addEventListener("paste", () => setTimeout(commit, 0));
+    box.addEventListener("click", () => input.focus());
+
+    chipFields[box.dataset.field] = {
+      get: () => { commit(); return items.slice(); },
+      set: (arr) => { items = (arr || []).slice(); render(); },
+    };
+  });
+
+  // ---------- 첨부파일 ----------
+  let files = [];
+  function fmtSize(n) {
+    if (n < 1024) return n + " B";
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+    return (n / 1024 / 1024).toFixed(1) + " MB";
+  }
+  function renderFiles() {
+    const list = $("attachList");
+    list.innerHTML = "";
+    files.forEach((f, i) => {
+      const el = document.createElement("span");
+      el.className = "attach";
+      el.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>';
+      const name = document.createElement("span"); name.className = "name"; name.textContent = f.name; name.title = f.name;
+      const size = document.createElement("span"); size.className = "size"; size.textContent = fmtSize(f.size);
+      const x = document.createElement("button");
+      x.type = "button"; x.className = "btn"; x.style.cssText = "padding:2px 8px;border-radius:6px";
+      x.textContent = "삭제";
+      x.addEventListener("click", () => { files.splice(i, 1); renderFiles(); });
+      el.append(name, size, x);
+      list.appendChild(el);
+    });
+    list.style.paddingBottom = files.length ? "4px" : "0";
+  }
+  function addFiles(list) {
+    const msgs = [];
+    for (const f of list) {
+      if (files.length >= CFG.MAX_FILES) { msgs.push(`첨부파일은 최대 ${CFG.MAX_FILES}개까지 가능합니다.`); break; }
+      if (f.size > CFG.MAX_FILE_MB * 1024 * 1024) { msgs.push(`"${f.name}" 파일이 ${CFG.MAX_FILE_MB}MB를 넘습니다.`); continue; }
+      if (f.size === 0) { msgs.push(`"${f.name}"은(는) 빈 파일입니다.`); continue; }
+      files.push(f);
+    }
+    renderFiles();
+    if (msgs.length) alert(msgs.join("\n"));
+  }
+  $("attachBtn").addEventListener("click", () => $("fileInput").click());
+  $("fileInput").addEventListener("change", (e) => { addFiles(e.target.files); e.target.value = ""; });
+
+  const card = $("composeCard"), dz = $("dropzone");
+  let dragDepth = 0;
+  card.addEventListener("dragenter", (e) => { if ([...e.dataTransfer.types].includes("Files")) { e.preventDefault(); dragDepth++; dz.classList.add("active"); } });
+  card.addEventListener("dragover", (e) => { if ([...e.dataTransfer.types].includes("Files")) e.preventDefault(); });
+  card.addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; dz.classList.remove("active"); } });
+  card.addEventListener("drop", (e) => {
+    if (!e.dataTransfer.files.length) return;
+    e.preventDefault(); dragDepth = 0; dz.classList.remove("active"); addFiles(e.dataTransfer.files);
+  });
+
+  // ---------- 임시 저장(이 브라우저에만, 첨부파일 제외) ----------
+  const textIds = ["studentNo", "studentName", "sender", "subject", "body", "signature"];
+  let saveTimer;
+  function collect() {
+    const d = {};
+    textIds.forEach((id) => (d[id] = $(id).value));
+    d.to = chipFields.to.get(); d.cc = chipFields.cc.get(); d.bcc = chipFields.bcc.get();
+    return d;
+  }
+  function saveDraft() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      try {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(collect()));
+        $("savedAt").textContent = "임시저장 " + new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+      } catch (_) {}
+    }, 500);
+  }
+  function loadDraft() {
+    let d = null;
+    try { d = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null"); } catch (_) {}
+    if (!d) return;
+    textIds.forEach((id) => { if (typeof d[id] === "string") $(id).value = d[id]; });
+    chipFields.to.set(d.to); chipFields.cc.set(d.cc); chipFields.bcc.set(d.bcc);
+  }
+  function clearAll() {
+    textIds.forEach((id) => ($(id).value = ""));
+    ["to", "cc", "bcc"].forEach((k) => chipFields[k].set([]));
+    files = []; renderFiles();
+    try { localStorage.removeItem(DRAFT_KEY); } catch (_) {}
+    $("savedAt").textContent = "";
+  }
+  textIds.forEach((id) => $(id).addEventListener("input", saveDraft));
+  loadDraft();
+
+  window.addEventListener("beforeunload", (e) => {
+    if (!$("composeView").classList.contains("hidden") && ($("body").value.trim() || files.length)) { e.preventDefault(); e.returnValue = ""; }
+  });
+
+  // ---------- 미리보기 / 모달 ----------
+  function el(tag, cls, text) { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
+
+  function buildMailView(d) {
+    const wrap = el("div", "mailview");
+    wrap.appendChild(el("h3", "subj" + (d.subject.trim() ? "" : " empty"), d.subject.trim() || "(제목 없음)"));
+    const dl = el("dl");
+    const add = (k, v) => { if (!v) return; dl.append(el("dt", null, k), el("dd", null, v)); };
+    add("보내는 사람", d.sender.trim() || "(입력 안 함)");
+    add("받는 사람", d.to.join(", ") || "(없음)");
+    add("참조", d.cc.join(", "));
+    add("숨은 참조", d.bcc.join(", "));
+    add("첨부", files.length ? files.length + "개" : "");
+    wrap.appendChild(dl);
+    wrap.appendChild(el("div", "body", d.body || "(본문 없음)"));
+    if (d.signature.trim()) wrap.appendChild(el("div", "sig", d.signature));
+    if (files.length) {
+      const fl = el("div", "files");
+      files.forEach((f) => { const a = el("span", "attach"); a.append(el("span", "name", f.name), el("span", "size", fmtSize(f.size))); fl.appendChild(a); });
+      wrap.appendChild(fl);
+    }
+    return wrap;
+  }
+
+  const modal = $("modal");
+  let modalLocked = false;
+  function openModal(title, nodes, buttons) {
+    $("modalTitle").textContent = title;
+    const c = $("modalContent"); c.innerHTML = ""; nodes.forEach((n) => c.appendChild(n));
+    const f = $("modalFooter"); f.innerHTML = ""; buttons.forEach((b) => f.appendChild(b));
+    modal.classList.add("open");
+  }
+  function closeModal() { if (!modalLocked) modal.classList.remove("open"); }
+  modal.addEventListener("click", (e) => { if (e.target === modal || e.target.hasAttribute("data-close")) closeModal(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
+  function button(label, cls, onClick) { const b = el("button", "btn " + (cls || ""), label); b.type = "button"; b.addEventListener("click", onClick); return b; }
+
+  $("previewBtn").addEventListener("click", () => {
+    openModal("미리보기 (받는 사람에게 보이는 모습)", [buildMailView(collect())], [button("닫기", "", closeModal)]);
+  });
+
+  $("resetBtn").addEventListener("click", () => {
+    if (confirm("작성한 내용을 모두 지울까요? 되돌릴 수 없습니다.")) clearAll();
+  });
+
+  // ---------- 제출 ----------
+  function listNode(cls, items) { const ul = el("ul", cls); items.forEach((t) => ul.appendChild(el("li", null, t))); return ul; }
+
+  $("sendBtn").addEventListener("click", () => {
+    const d = collect();
+    const errors = [], warns = [];
+    if (!d.studentNo.trim()) errors.push("학번을 입력하세요.");
+    if (!d.studentName.trim()) errors.push("이름을 입력하세요.");
+    if (!d.to.length) errors.push("받는 사람을 한 명 이상 입력하세요.");
+    const bad = [...d.to, ...d.cc, ...d.bcc].filter((a) => !isValidEmail(a));
+    if (bad.length) errors.push("이메일 주소 형식이 올바르지 않습니다: " + bad.join(", "));
+    if (!d.subject.trim()) warns.push("제목이 비어 있습니다.");
+    if (!d.body.trim()) warns.push("본문이 비어 있습니다.");
+
+    if (errors.length) {
+      openModal("보낼 수 없습니다", [listNode("err-list", errors)], [button("확인", "primary", closeModal)]);
+      return;
+    }
+    const nodes = [];
+    if (warns.length) nodes.push(listNode("warn-list", warns));
+    const who = el("p", null, `${d.studentNo.trim()} ${d.studentName.trim()} 학생, 아래 내용으로 제출합니다. 제출 후에는 수정할 수 없습니다.`);
+    who.style.cssText = "margin:0 0 14px;color:var(--muted);font-size:14px";
+    nodes.push(who, buildMailView(d));
+    const status = el("span", null, ""); status.style.cssText = "margin-right:auto;align-self:center;color:var(--muted);font-size:14px";
+    const sendNow = button("제출하기", "primary", () => submit(d, sendNow, status));
+    if (!configured) { sendNow.disabled = true; status.textContent = "Supabase 설정 전이라 제출할 수 없습니다."; }
+    openModal("이대로 보낼까요?", nodes, [status, button("계속 작성", "", closeModal), sendNow]);
+  });
+
+  function uuid() {
+    if (crypto.randomUUID) return crypto.randomUUID();
+    return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (c) => (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16));
+  }
+
+  async function submit(d, btn, status) {
+    modalLocked = true;
+    btn.disabled = true;
+    $("modalFooter").querySelectorAll("button").forEach((b) => (b.disabled = true));
+    const id = uuid();
+    try {
+      const meta = [];
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i];
+        status.textContent = `첨부파일 업로드 중… (${i + 1}/${files.length})`;
+        const ext = (f.name.match(/\.([A-Za-z0-9]{1,10})$/) || ["", "bin"])[1].toLowerCase();
+        const path = `${id}/${i + 1}.${ext}`; // 저장소 경로는 영문만 가능 → 원래 파일명은 DB에 기록
+        const { error } = await sb.storage.from("attachments").upload(path, f, { contentType: f.type || "application/octet-stream", upsert: false });
+        if (error) throw new Error(`"${f.name}" 업로드 실패: ${error.message}`);
+        meta.push({ name: f.name, size: f.size, type: f.type || "", path });
+      }
+      status.textContent = "제출 중…";
+      const row = {
+        id,
+        student_no: d.studentNo.trim(),
+        student_name: d.studentName.trim(),
+        sender: d.sender.trim(),
+        to_addrs: d.to, cc_addrs: d.cc, bcc_addrs: d.bcc,
+        subject: d.subject, body: d.body, signature: d.signature,
+        attachments: meta,
+      };
+      const { error } = await sb.from("submissions").insert(row);
+      if (error) throw new Error(error.message);
+
+      modalLocked = false; closeModal();
+      const r = $("receipt"); r.innerHTML = "";
+      const now = new Date().toLocaleString("ko-KR", { timeZone: "Asia/Seoul" });
+      [["응시자", `${row.student_no} ${row.student_name}`], ["제출 시각", now], ["접수 번호", id.slice(0, 8).toUpperCase()]]
+        .forEach(([k, v]) => { const p = el("div"); p.append(el("b", null, k + " "), document.createTextNode(v)); r.appendChild(p); });
+      clearAll();
+      $("composeView").classList.add("hidden");
+      $("doneView").classList.remove("hidden");
+      window.scrollTo(0, 0);
+    } catch (err) {
+      modalLocked = false;
+      $("modalFooter").querySelectorAll("button").forEach((b) => (b.disabled = false));
+      status.style.color = "var(--danger)";
+      status.textContent = "제출 실패: " + (err.message || err) + " — 선생님께 알려주세요.";
+    }
+  }
+
+  $("newBtn").addEventListener("click", () => {
+    $("doneView").classList.add("hidden");
+    $("composeView").classList.remove("hidden");
+  });
+})();
+</script>
+</body>
+</html>
