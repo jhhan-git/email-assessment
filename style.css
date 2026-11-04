@@ -99,7 +99,7 @@ main { max-width: 920px; margin: 20px auto 60px; padding: 0 16px; }
 .sig-area { margin: 0 16px; border-top: 1px dashed var(--line); padding: 10px 0; }
 .sig-area .label { color: var(--muted); font-size: 13px; margin-bottom: 4px; }
 .sig-area textarea {
-  width: 100%; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; min-height: 80px;
+  width: 100%; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; min-height: 132px;
   resize: vertical; background: var(--surface-2); line-height: 1.6;
 }
 .sig-area textarea:focus { outline: 2px solid var(--primary); outline-offset: -1px; border-color: transparent; }
