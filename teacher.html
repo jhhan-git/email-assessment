@@ -38,6 +38,15 @@
     .detail .empty { color: var(--muted); text-align: center; padding: 80px 0; }
     .detail .actions { display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 12px; flex-wrap: wrap; }
     .detail .stu { color: var(--muted); font-size: 14px; margin-bottom: 10px; }
+    .exam { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 14px 16px; margin-bottom: 16px; }
+    .exam .spacer { flex: 1; }
+    .exam input[type=datetime-local] { padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; }
+    .tabs { display: inline-flex; border: 1px solid var(--line); border-radius: 20px; overflow: hidden; }
+    .tabs button { border: 0; background: transparent; padding: 7px 14px; cursor: pointer; font-size: 14px; }
+    .tabs button.on { background: var(--primary); color: #fff; font-weight: 600; }
+    .tag.ok { background: var(--ok-soft); color: var(--ok); }
+    .tag.wait { background: var(--primary-soft); color: #174ea6; }
+    .help { font-size: 13px; color: var(--muted); background: var(--surface-2); border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; }
 
     @media (max-width: 860px) {
       .split { grid-template-columns: 1fr; }
@@ -74,7 +83,18 @@
     </form>
 
     <section id="appView" class="hidden">
+      <div class="card exam">
+        <b>시험 상태</b>
+        <span class="pill" id="examPill">확인 중…</span>
+        <span class="count" id="examInfo"></span>
+        <span class="spacer"></span>
+        <label class="count">마감 예약 <input type="datetime-local" id="closeAt"></label>
+        <button class="btn" id="setCloseBtn" type="button">예약</button>
+        <button class="btn" id="clearCloseBtn" type="button">예약 취소</button>
+        <button class="btn" id="toggleBtn" type="button">…</button>
+      </div>
       <div class="card bar">
+        <div class="tabs"><button type="button" id="tabSub" class="on">제출물</button><button type="button" id="tabDraft">작성 중 자동저장</button></div>
         <input type="search" id="q" placeholder="학번, 이름, 제목, 받는 사람으로 검색">
         <label><input type="checkbox" id="latestOnly" checked> 학번별 마지막 제출만</label>
         <span class="count" id="count"></span>
@@ -97,11 +117,14 @@
     return;
   }
   const sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
-  let rows = [], selectedId = null;
+  let rows = [], drafts = [], selectedId = null, mode = "sub", exam = null;
 
   function el(tag, cls, text) { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
+  function btn(label, cls, onClick) { const b = el("button", "btn " + (cls || ""), label); b.type = "button"; b.onclick = onClick; return b; }
   const fmtTime = (t) => new Date(t).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const fmtFull = (t) => new Date(t).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" });
   const fmtSize = (n) => n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(1) + " KB" : (n / 1048576).toFixed(1) + " MB";
+  const key = (no) => String(no || "").trim();
 
   // ---------- 로그인 ----------
   async function showForSession(session) {
@@ -119,7 +142,7 @@
     $("who").textContent = session.user.email;
     $("logoutBtn").classList.remove("hidden");
     $("loginView").classList.add("hidden"); $("appView").classList.remove("hidden");
-    load();
+    loadExam(); load();
   }
   $("loginView").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -129,28 +152,104 @@
     if (error) { $("loginMsg").textContent = "로그인 실패: 이메일 또는 비밀번호를 확인하세요."; return; }
     showForSession(data.session);
   });
-  $("logoutBtn").addEventListener("click", async () => { await sb.auth.signOut(); rows = []; showForSession(null); });
+  $("logoutBtn").addEventListener("click", async () => { await sb.auth.signOut(); rows = []; drafts = []; showForSession(null); });
   sb.auth.getSession().then(({ data }) => showForSession(data.session));
 
+  // ---------- 시험 상태 ----------
+  function toLocalInput(t) {
+    const d = new Date(t), pad = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+  function renderExam() {
+    const pill = $("examPill"), info = $("examInfo"), tb = $("toggleBtn");
+    if (!exam) {
+      pill.className = "pill"; pill.textContent = "설정 필요";
+      info.textContent = "Supabase에서 update-v2.sql을 실행하세요.";
+      ["toggleBtn", "setCloseBtn", "clearCloseBtn", "closeAt"].forEach((id) => ($(id).disabled = true));
+      return;
+    }
+    ["toggleBtn", "setCloseBtn", "clearCloseBtn", "closeAt"].forEach((id) => ($(id).disabled = false));
+    pill.className = "pill " + (exam.open ? "open" : "closed");
+    pill.textContent = exam.open ? "진행 중 · 작성/제출 가능" : "마감됨 · 작성/제출 불가";
+    const ca = exam.closes_at ? new Date(exam.closes_at) : null;
+    if (ca && exam.open) {
+      const mins = Math.max(0, Math.round((ca - new Date(exam.now)) / 60000));
+      info.textContent = `${fmtFull(ca)} 자동 마감 예정 (약 ${mins}분 남음)`;
+    } else if (ca && !exam.open && exam.manual_open) {
+      info.textContent = `${fmtFull(ca)}에 자동 마감됨`;
+    } else info.textContent = "";
+    if (ca && document.activeElement !== $("closeAt")) $("closeAt").value = toLocalInput(ca);
+    tb.textContent = exam.open ? "지금 마감하기" : "다시 열기";
+    tb.className = "btn " + (exam.open ? "danger" : "primary");
+  }
+  async function loadExam() {
+    const { data, error } = await sb.rpc("exam_status");
+    exam = error ? null : data;
+    renderExam();
+  }
+  async function setExam(open, closesAt) {
+    const { data, error } = await sb.rpc("set_exam_status", { p_open: open, p_closes_at: closesAt });
+    if (error) { alert("변경 실패: " + error.message); return; }
+    exam = data; renderExam();
+  }
+  $("toggleBtn").addEventListener("click", () => {
+    if (exam.open) {
+      if (!confirm("지금 마감할까요?\n학생 화면이 20초 안에 잠기고, 더 이상 작성·제출할 수 없습니다.")) return;
+      setExam(false, exam.closes_at);
+    } else {
+      const ca = exam.closes_at && new Date(exam.closes_at) > new Date(exam.now) ? exam.closes_at : null;
+      if (!confirm("다시 열까요? 학생들이 다시 작성·제출할 수 있게 됩니다." + (exam.closes_at && !ca ? "\n(지난 마감 예약은 지워집니다)" : ""))) return;
+      setExam(true, ca);
+    }
+  });
+  $("setCloseBtn").addEventListener("click", () => {
+    const v = $("closeAt").value;
+    if (!v) { alert("마감 날짜와 시각을 먼저 고르세요."); return; }
+    const t = new Date(v);
+    if (t <= new Date()) { alert("지금보다 나중 시각을 고르세요."); return; }
+    setExam(exam.open, t.toISOString());
+  });
+  $("clearCloseBtn").addEventListener("click", () => { $("closeAt").value = ""; setExam(exam.open, null); });
+  setInterval(() => { if (!$("appView").classList.contains("hidden")) loadExam(); }, 30000);
+
   // ---------- 목록 ----------
-  async function load() {
-    $("list").innerHTML = '<div style="padding:16px;color:var(--muted)">불러오는 중…</div>';
+  async function fetchAll(table, cols) {
     const all = [];
     for (let from = 0; ; from += 1000) {
-      const { data, error } = await sb.from("submissions").select("*").order("created_at", { ascending: false }).range(from, from + 999);
-      if (error) { $("list").innerHTML = ""; $("list").appendChild(el("div", "notice", "불러오기 실패: " + error.message)); return; }
+      const { data, error } = await sb.from(table).select(cols).order("created_at", { ascending: false }).range(from, from + 999);
+      if (error) throw error;
       all.push(...data);
       if (data.length < 1000) break;
     }
-    rows = all;
+    return all;
+  }
+  async function load() {
+    $("list").innerHTML = '<div style="padding:16px;color:var(--muted)">불러오는 중…</div>';
+    try {
+      rows = await fetchAll("submissions", "*");
+      try { drafts = await fetchAll("drafts", "*"); } catch (_) { drafts = []; }
+    } catch (error) {
+      $("list").innerHTML = ""; $("list").appendChild(el("div", "notice", "불러오기 실패: " + error.message)); return;
+    }
+    drafts.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
     renderList();
   }
 
+  function submitCounts() {
+    const c = {}; rows.forEach((r) => (c[key(r.student_no)] = (c[key(r.student_no)] || 0) + 1)); return c;
+  }
+  const draftAsMail = (d) => {
+    const x = d.data || {};
+    return { id: d.id, student_no: d.student_no, student_name: d.student_name, created_at: d.updated_at, sender: x.sender || "",
+      to_addrs: x.to || [], cc_addrs: x.cc || [], bcc_addrs: x.bcc || [], subject: x.subject || "", body: x.body || "", signature: x.signature || "",
+      attachments: [], restore_until: d.restore_until, _draft: true };
+  };
+
   function visibleRows() {
-    let list = rows;
+    let list = mode === "sub" ? rows : drafts.map(draftAsMail);
     if ($("latestOnly").checked) {
       const seen = new Set();
-      list = list.filter((r) => { const k = r.student_no.trim(); if (seen.has(k)) return false; seen.add(k); return true; });
+      list = list.filter((r) => { const k = key(r.student_no); if (seen.has(k)) return false; seen.add(k); return true; });
     }
     const q = $("q").value.trim().toLowerCase();
     if (q) list = list.filter((r) => [r.student_no, r.student_name, r.subject, ...(r.to_addrs || [])].join(" ").toLowerCase().includes(q));
@@ -158,18 +257,26 @@
   }
 
   function renderList() {
-    const list = visibleRows();
-    const counts = {};
-    rows.forEach((r) => (counts[r.student_no.trim()] = (counts[r.student_no.trim()] || 0) + 1));
-    $("count").textContent = `${list.length}건 표시 / 전체 ${rows.length}건 · 학생 ${Object.keys(counts).length}명`;
+    const list = visibleRows(), counts = submitCounts();
+    $("tabSub").classList.toggle("on", mode === "sub"); $("tabDraft").classList.toggle("on", mode === "draft");
+    $("latestOnly").parentElement.lastChild.textContent = mode === "sub" ? " 학번별 마지막 제출만" : " 학번별 최근 것만";
+    $("count").textContent = mode === "sub"
+      ? `${list.length}건 표시 / 전체 ${rows.length}건 · 학생 ${Object.keys(counts).length}명`
+      : `${list.length}건 표시 / 전체 ${drafts.length}건 · 미제출 ${new Set(drafts.filter((d) => !counts[key(d.student_no)]).map((d) => key(d.student_no))).size}명`;
     const box = $("list"); box.innerHTML = "";
-    if (!list.length) { box.appendChild(el("div", null, "제출물이 없습니다.")).style.cssText = "padding:16px;color:var(--muted)"; return; }
+    if (!list.length) {
+      box.appendChild(el("div", null, mode === "sub" ? "제출물이 없습니다." : "자동저장된 작성 내용이 없습니다.")).style.cssText = "padding:16px;color:var(--muted)";
+      return;
+    }
     list.forEach((r) => {
       const b = el("button", "item" + (r.id === selectedId ? " sel" : "")); b.type = "button";
       const top = el("div", "top");
       const who = el("span", "who", `${r.student_no} ${r.student_name}`);
-      if (counts[r.student_no.trim()] > 1) who.appendChild(el("span", "tag", `${counts[r.student_no.trim()]}회 제출`));
-      top.append(who, el("span", "when", fmtTime(r.created_at)));
+      const n = counts[key(r.student_no)] || 0;
+      if (mode === "sub" && n > 1) who.appendChild(el("span", "tag", `${n}회 제출`));
+      if (mode === "draft") who.appendChild(el("span", "tag" + (n ? " ok" : ""), n ? "제출함" : "미제출"));
+      if (r.restore_until && new Date(r.restore_until) > new Date()) who.appendChild(el("span", "tag wait", "복원 대기"));
+      top.append(who, el("span", "when", (mode === "draft" ? "저장 " : "") + fmtTime(r.created_at)));
       const att = (r.attachments || []).length;
       b.append(top, el("div", "s", r.subject || "(제목 없음)"),
         el("div", "meta", `받는 사람 ${r.to_addrs.length} · 참조 ${r.cc_addrs.length} · 숨은 참조 ${r.bcc_addrs.length}` + (att ? ` · 첨부 ${att}` : "")));
@@ -177,34 +284,48 @@
       box.appendChild(b);
     });
   }
+  function setMode(m) {
+    mode = m; selectedId = null;
+    $("detail").innerHTML = `<div class="empty">왼쪽 목록에서 ${m === "sub" ? "제출물" : "작성 내용"}을 선택하세요.</div>`;
+    renderList();
+  }
+  $("tabSub").addEventListener("click", () => setMode("sub"));
+  $("tabDraft").addEventListener("click", () => setMode("draft"));
   $("q").addEventListener("input", renderList);
   $("latestOnly").addEventListener("change", renderList);
-  $("reloadBtn").addEventListener("click", load);
+  $("reloadBtn").addEventListener("click", () => { loadExam(); load(); });
 
   // ---------- 상세 ----------
   async function renderDetail(r) {
     const d = $("detail"); d.innerHTML = "";
     const actions = el("div", "actions");
-    const printBtn = el("button", "btn", "인쇄"); printBtn.type = "button"; printBtn.onclick = () => window.print();
-    const delBtn = el("button", "btn danger", "삭제"); delBtn.type = "button"; delBtn.onclick = () => del(r);
-    actions.append(printBtn, delBtn);
+    if (r._draft) actions.append(btn("복원 허용 (10분)", "primary", () => allowRestore(r)));
+    actions.append(btn("인쇄", "", () => window.print()), btn("삭제", "danger", () => del(r)));
     d.appendChild(actions);
-    d.appendChild(el("div", "stu", `${r.student_no} ${r.student_name} · 제출 ${new Date(r.created_at).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })} · 접수번호 ${r.id.slice(0, 8).toUpperCase()}`));
+    if (r._draft) {
+      d.appendChild(el("div", "help",
+        "학생 PC가 재부팅되었다면 [복원 허용]을 누른 뒤, 학생에게 같은 학번·이름을 다시 입력하라고 하세요. " +
+        "10분 안에 학생 화면에 '불러올까요?' 안내가 뜹니다(한 번 불러가면 끝). 첨부파일은 자동저장되지 않습니다."));
+      d.appendChild(el("div", "stu", `${r.student_no} ${r.student_name} · 마지막 자동저장 ${fmtFull(r.created_at)}` +
+        (r.restore_until && new Date(r.restore_until) > new Date() ? ` · 복원 대기 중(~${new Date(r.restore_until).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })})` : "")));
+    } else {
+      d.appendChild(el("div", "stu", `${r.student_no} ${r.student_name} · 제출 ${fmtFull(r.created_at)} · 접수번호 ${r.id.slice(0, 8).toUpperCase()}`));
+    }
 
     const v = el("div", "mailview");
     v.appendChild(el("h3", "subj" + (r.subject ? "" : " empty"), r.subject || "(제목 없음)"));
     const dl = el("dl");
-    const add = (k, val, always) => { if (!val && !always) return; dl.append(el("dt", null, k), el("dd", null, val || "(없음)")); };
-    add("보내는 사람", r.sender, true);
-    add("받는 사람", r.to_addrs.join(", "), true);
-    add("참조", r.cc_addrs.join(", "), true);
-    add("숨은 참조", r.bcc_addrs.join(", "), true);
+    const add = (k, val) => dl.append(el("dt", null, k), el("dd", null, val || "(없음)"));
+    add("보내는 사람", r.sender);
+    add("받는 사람", r.to_addrs.join(", "));
+    add("참조", r.cc_addrs.join(", "));
+    add("숨은 참조", r.bcc_addrs.join(", "));
     v.appendChild(dl);
     v.appendChild(el("div", "body", r.body || "(본문 없음)"));
     v.appendChild(el("div", "sig", r.signature || "(서명 없음)"));
     const files = r.attachments || [];
     const fl = el("div", "files");
-    if (!files.length) fl.appendChild(el("span", "meta", "첨부파일 없음")).style.cssText = "color:var(--muted);font-size:14px";
+    if (!r._draft && !files.length) fl.appendChild(el("span", "meta", "첨부파일 없음")).style.cssText = "color:var(--muted);font-size:14px";
     v.appendChild(fl);
     d.appendChild(v);
 
@@ -219,30 +340,48 @@
     }
   }
 
+  async function allowRestore(r) {
+    if (exam && !exam.open) { alert("시험이 마감된 상태에서는 복원할 수 없습니다. 먼저 [다시 열기]를 누르세요."); return; }
+    const { error } = await sb.rpc("allow_restore", { p_id: r.id });
+    if (error) { alert("복원 허용 실패: " + error.message); return; }
+    const dr = drafts.find((x) => x.id === r.id);
+    if (dr) dr.restore_until = new Date(Date.now() + 10 * 60000).toISOString();
+    r.restore_until = dr && dr.restore_until;
+    alert(`복원을 허용했습니다.\n${r.student_no} ${r.student_name} 학생에게 학번과 이름을 다시 입력하라고 안내하세요. (10분간 유효)`);
+    renderList(); renderDetail(r);
+  }
+
   async function del(r) {
-    if (!confirm(`${r.student_no} ${r.student_name} 학생의 제출물(${fmtTime(r.created_at)})을 삭제할까요? 되돌릴 수 없습니다.`)) return;
-    const paths = (r.attachments || []).map((f) => f.path);
-    if (paths.length) await sb.storage.from("attachments").remove(paths);
-    const { error } = await sb.from("submissions").delete().eq("id", r.id);
+    const what = r._draft ? "자동저장된 작성 내용" : "제출물";
+    if (!confirm(`${r.student_no} ${r.student_name} 학생의 ${what}(${fmtTime(r.created_at)})을 삭제할까요? 되돌릴 수 없습니다.`)) return;
+    if (!r._draft) {
+      const paths = (r.attachments || []).map((f) => f.path);
+      if (paths.length) await sb.storage.from("attachments").remove(paths);
+    }
+    const { error } = await sb.from(r._draft ? "drafts" : "submissions").delete().eq("id", r.id);
     if (error) { alert("삭제 실패: " + error.message); return; }
-    rows = rows.filter((x) => x.id !== r.id); selectedId = null;
+    if (r._draft) drafts = drafts.filter((x) => x.id !== r.id); else rows = rows.filter((x) => x.id !== r.id);
+    selectedId = null;
     $("detail").innerHTML = '<div class="empty">삭제했습니다.</div>';
     renderList();
   }
 
   // ---------- CSV ----------
   $("csvBtn").addEventListener("click", () => {
-    const head = ["제출시각", "학번", "이름", "보내는 사람", "받는 사람", "참조", "숨은 참조", "제목", "본문", "서명", "첨부파일", "접수번호"];
+    const counts = submitCounts();
+    const head = [mode === "sub" ? "제출시각" : "마지막 자동저장", "학번", "이름", "보내는 사람", "받는 사람", "참조", "숨은 참조", "제목", "본문", "서명",
+      mode === "sub" ? "첨부파일" : "제출 여부", mode === "sub" ? "접수번호" : "구분"];
     const lines = [head];
     visibleRows().forEach((r) => lines.push([
-      new Date(r.created_at).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" }), r.student_no, r.student_name, r.sender || "",
+      fmtFull(r.created_at), r.student_no, r.student_name, r.sender || "",
       r.to_addrs.join(", "), r.cc_addrs.join(", "), r.bcc_addrs.join(", "), r.subject || "", r.body || "", r.signature || "",
-      (r.attachments || []).map((f) => f.name).join(", "), r.id.slice(0, 8).toUpperCase(),
+      mode === "sub" ? (r.attachments || []).map((f) => f.name).join(", ") : (counts[key(r.student_no)] ? "제출함" : "미제출"),
+      mode === "sub" ? r.id.slice(0, 8).toUpperCase() : "자동저장",
     ]));
     const csv = "﻿" + lines.map((l) => l.map((c) => '"' + String(c).replace(/"/g, '""') + '"').join(",")).join("\r\n");
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    a.download = `이메일수행평가_제출물_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `이메일수행평가_${mode === "sub" ? "제출물" : "자동저장"}_${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   });

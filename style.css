@@ -190,3 +190,17 @@ main { max-width: 920px; margin: 20px auto 60px; padding: 0 16px; }
   .topbar, .no-print { display: none !important; }
   .card { box-shadow: none; }
 }
+
+/* 시험 상태 */
+.timer {
+  font-variant-numeric: tabular-nums; font-weight: 700; font-size: 14px; padding: 5px 12px; border-radius: 16px;
+  background: var(--primary-soft); color: #174ea6; white-space: nowrap;
+}
+.timer.warn { background: #fef7e0; color: #b06000; }
+.timer.over { background: var(--danger-soft); color: var(--danger); }
+.notice.closed { font-size: 15px; }
+.locked .chips input, .locked .chip button { display: none; }
+.locked textarea, .locked input { color: #475569; }
+.pill { display: inline-block; padding: 3px 12px; border-radius: 14px; font-size: 13px; font-weight: 700; }
+.pill.open { background: var(--ok-soft); color: var(--ok); }
+.pill.closed { background: var(--danger-soft); color: var(--danger); }

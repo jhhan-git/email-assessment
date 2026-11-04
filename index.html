@@ -15,12 +15,17 @@
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>
       </div>
       <h1 id="appTitle">업무용 이메일 작성 수행평가</h1>
+      <span class="spacer"></span>
+      <span id="timer" class="timer hidden"></span>
     </div>
   </div>
 
   <main>
     <div id="configNotice" class="notice hidden">
       config.js에 Supabase 주소와 키가 아직 입력되지 않았습니다. 지금은 작성·미리보기만 되고 제출은 되지 않습니다.
+    </div>
+    <div id="closedNotice" class="notice closed hidden">
+      <b>시험이 종료되었습니다.</b> 더 이상 작성하거나 제출할 수 없습니다.
     </div>
 
     <section id="composeView">
@@ -106,6 +111,9 @@
 (function () {
   const CFG = Object.assign({ TITLE: "업무용 이메일 작성 수행평가", MAX_FILES: 5, MAX_FILE_MB: 10 }, window.APP_CONFIG || {});
   const DRAFT_KEY = "email-assessment-draft-v1";
+  const DRAFT_ID_KEY = "email-assessment-draft-id-v1"; // 이 브라우저의 서버 자동저장 칸 번호
+  let draftId = null;
+  try { draftId = localStorage.getItem(DRAFT_ID_KEY); } catch (_) {}
   const $ = (id) => document.getElementById(id);
 
   document.title = CFG.TITLE;
@@ -219,9 +227,17 @@
     e.preventDefault(); dragDepth = 0; dz.classList.remove("active"); addFiles(e.dataTransfer.files);
   });
 
-  // ---------- 임시 저장(이 브라우저에만, 첨부파일 제외) ----------
+  // ---------- 임시 저장: 이 브라우저(자동) + 서버(아래 '서버 임시저장'), 첨부파일 제외 ----------
   const textIds = ["studentNo", "studentName", "sender", "subject", "body", "signature"];
-  let saveTimer;
+  let saveTimer, dirty = false, localSavedAt = "", serverSavedAt = "";
+  const hhmm = (d) => (d ? new Date(d) : new Date()).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+  function showSaved(err) {
+    const parts = [];
+    if (serverSavedAt) parts.push("서버 저장 " + serverSavedAt);
+    if (localSavedAt) parts.push("이 PC 저장 " + localSavedAt);
+    $("savedAt").textContent = err ? "⚠ " + err : parts.join(" · ");
+    $("savedAt").style.color = err ? "#ffd5d1" : "";
+  }
   function collect() {
     const d = {};
     textIds.forEach((id) => (d[id] = $(id).value));
@@ -229,11 +245,12 @@
     return d;
   }
   function saveDraft() {
+    dirty = true;
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
       try {
         localStorage.setItem(DRAFT_KEY, JSON.stringify(collect()));
-        $("savedAt").textContent = "임시저장 " + new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+        localSavedAt = hhmm(); showSaved();
       } catch (_) {}
     }, 500);
   }
@@ -248,8 +265,8 @@
     textIds.forEach((id) => ($(id).value = ""));
     ["to", "cc", "bcc"].forEach((k) => chipFields[k].set([]));
     files = []; renderFiles();
-    try { localStorage.removeItem(DRAFT_KEY); } catch (_) {}
-    $("savedAt").textContent = "";
+    try { localStorage.removeItem(DRAFT_KEY); localStorage.removeItem(DRAFT_ID_KEY); } catch (_) {}
+    draftId = null; dirty = false; localSavedAt = ""; serverSavedAt = ""; showSaved();
   }
   textIds.forEach((id) => $(id).addEventListener("input", saveDraft));
   loadDraft();
@@ -379,7 +396,11 @@
       modalLocked = false;
       $("modalFooter").querySelectorAll("button").forEach((b) => (b.disabled = false));
       status.style.color = "var(--danger)";
-      status.textContent = "제출 실패: " + (err.message || err) + " — 선생님께 알려주세요.";
+      const msg = String(err.message || err);
+      status.textContent = /row-level security|violates/i.test(msg)
+        ? "시험이 종료되어 제출할 수 없습니다."
+        : "제출 실패: " + msg + " — 선생님께 알려주세요.";
+      checkStatus();
     }
   }
 
@@ -387,6 +408,91 @@
     $("doneView").classList.add("hidden");
     $("composeView").classList.remove("hidden");
   });
+
+  // ---------- 서버 자동저장 (재부팅 대비, 교사가 복원 허용) ----------
+  let serverSaving = false;
+  async function serverSave() {
+    if (!configured || locked || serverSaving) return;
+    const d = collect();
+    if (!d.studentNo.trim() || !d.studentName.trim()) return;
+    if (!draftId) {
+      draftId = uuid();
+      try { localStorage.setItem(DRAFT_ID_KEY, draftId); } catch (_) {}
+    }
+    serverSaving = true;
+    const wasDirty = dirty; dirty = false;
+    const { data, error } = await sb.rpc("save_draft", { p_id: draftId, p_no: d.studentNo, p_name: d.studentName, p_data: d });
+    serverSaving = false;
+    if (error || !data || !data.ok) {
+      dirty = dirty || wasDirty;
+      // PGRST202 = update-v2.sql 실행 전(함수 없음) → 학생에게 오류를 보이지 않음
+      if (!(data && data.error === "closed") && !(error && error.code === "PGRST202")) showSaved("서버 자동저장 실패 — 계속 작성하세요");
+      return;
+    }
+    serverSavedAt = hhmm(data.updated_at); showSaved();
+  }
+  setInterval(() => { if (dirty) serverSave(); }, 30000);
+
+  // 교사가 [복원 허용]을 누르면, 같은 학번·이름을 입력한 화면에 복원 안내가 뜸
+  let restoreAsking = false;
+  async function checkRestore() {
+    if (!configured || locked || restoreAsking) return;
+    const no = $("studentNo").value.trim(), name = $("studentName").value.trim();
+    if (!no || !name) return;
+    restoreAsking = true;
+    const { data, error } = await sb.rpc("claim_restore", { p_no: no, p_name: name });
+    if (!error && data && data.ok) {
+      if (confirm(`선생님이 복원을 허용한 작성 내용이 있습니다 (${hhmm(data.updated_at)} 저장).\n지금 화면의 내용을 이것으로 바꿀까요?`)) {
+        const d = data.data || {};
+        ["sender", "subject", "body", "signature"].forEach((id) => { $(id).value = typeof d[id] === "string" ? d[id] : ""; });
+        chipFields.to.set(d.to); chipFields.cc.set(d.cc); chipFields.bcc.set(d.bcc);
+        draftId = data.id;
+        try { localStorage.setItem(DRAFT_ID_KEY, draftId); } catch (_) {}
+        serverSavedAt = hhmm(data.updated_at);
+        saveDraft(); dirty = false;
+        alert("복원했습니다." + (files.length ? "" : " 첨부파일은 다시 첨부하세요."));
+      }
+    }
+    restoreAsking = false;
+  }
+  ["studentNo", "studentName"].forEach((id) => $(id).addEventListener("change", checkRestore));
+
+  // ---------- 시험 상태: 마감되면 화면 잠금 ----------
+  let locked = false, closesAt = null, clockOffset = 0, finalSaveDone = false;
+  function setLocked(on) {
+    if (on === locked) return;
+    locked = on;
+    $("closedNotice").classList.toggle("hidden", !on);
+    $("composeView").querySelectorAll("input, textarea").forEach((n) => (n.readOnly = on));
+    $("composeView").querySelectorAll("button").forEach((n) => { if (n.id !== "previewBtn") n.disabled = on; });
+    $("composeView").classList.toggle("locked", on);
+    if (on) { modalLocked = false; closeModal(); }
+  }
+  function tick() {
+    const t = $("timer");
+    if (!closesAt || locked) { t.classList.toggle("hidden", !locked); t.textContent = "시험 종료"; t.className = "timer" + (locked ? " over" : " hidden"); return; }
+    const left = Math.floor((closesAt - (Date.now() + clockOffset)) / 1000);
+    if (left <= 0) { setLocked(true); checkStatus(); return tick(); }
+    if (left <= 30 && !finalSaveDone) { finalSaveDone = true; serverSave(); }
+    const h = Math.floor(left / 3600), m = Math.floor((left % 3600) / 60), s = left % 60;
+    const pad = (n) => String(n).padStart(2, "0");
+    t.textContent = "남은 시간 " + (h ? h + ":" : "") + pad(m) + ":" + pad(s);
+    t.className = "timer" + (left <= 300 ? " warn" : "");
+  }
+  async function checkStatus() {
+    if (!configured) return;
+    const { data, error } = await sb.rpc("exam_status");
+    if (error || !data) return; // update-v2.sql 실행 전이면 항상 열린 것으로 취급
+    clockOffset = new Date(data.now).getTime() - Date.now();
+    closesAt = data.closes_at ? new Date(data.closes_at).getTime() : null;
+    if (!closesAt || closesAt - (Date.now() + clockOffset) > 30000) finalSaveDone = false;
+    setLocked(!data.open);
+    tick();
+    checkRestore();
+  }
+  checkStatus();
+  setInterval(checkStatus, 20000);
+  setInterval(tick, 1000);
 })();
 </script>
 </body>
