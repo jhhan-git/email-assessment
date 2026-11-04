@@ -39,6 +39,12 @@
         </div>
       </div>
 
+      <div class="card task-files hidden" id="taskFiles">
+        <span class="title">과제 파일</span>
+        <span class="tf-hint">필요한 파일만 내려받아 [파일 첨부]로 첨부하세요.</span>
+        <div class="tf-list" id="taskFileList"></div>
+      </div>
+
       <div class="card" id="composeCard">
         <div class="compose-head">
           <span>새 메일 작성</span>
@@ -122,6 +128,14 @@
 
   document.title = CFG.TITLE;
   $("appTitle").textContent = CFG.TITLE;
+
+  // 과제 파일 내려받기 목록
+  (CFG.ASSIGNMENT_FILES || []).forEach((f) => {
+    const a = document.createElement("a");
+    a.className = "attach"; a.href = f.path; a.download = f.name; a.textContent = "⬇ " + f.name;
+    $("taskFileList").appendChild(a);
+  });
+  $("taskFiles").classList.toggle("hidden", !(CFG.ASSIGNMENT_FILES || []).length);
 
   const configured = !!(CFG.SUPABASE_URL && CFG.SUPABASE_ANON_KEY && window.supabase);
   const sb = configured ? window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, { auth: { persistSession: false } }) : null;

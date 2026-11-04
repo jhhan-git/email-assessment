@@ -208,3 +208,9 @@ main { max-width: 920px; margin: 20px auto 60px; padding: 0 16px; }
   flex-basis: 100%; font-size: 13.5px; line-height: 1.6; color: #174ea6; background: var(--primary-soft);
   border-radius: 8px; padding: 8px 12px;
 }
+.task-files { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 12px 16px; }
+.task-files .title { font-weight: 700; }
+.task-files .tf-hint { color: var(--muted); font-size: 13px; }
+.task-files .tf-list { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 8px; }
+.task-files a.attach { color: var(--primary); text-decoration: none; padding: 6px 12px; }
+.task-files a.attach:hover { background: var(--primary-soft); }
