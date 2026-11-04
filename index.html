@@ -53,7 +53,7 @@
 
         <div class="row">
           <div class="label">보내는 사람</div>
-          <input class="plain" id="sender" maxlength="200" placeholder="예: 홍길동 <gildong@company.co.kr>" autocomplete="off">
+          <div class="chips" data-field="from" data-max="1"><input type="text" maxlength="200" placeholder="이름과 이메일 주소 입력 후 Enter (예: 홍길동 gildong@company.co.kr)" autocomplete="off"></div>
         </div>
         <div class="row">
           <div class="label">받는 사람</div>
@@ -146,6 +146,14 @@
     const m = s.match(/<([^<>]+)>\s*$/);
     return (m ? m[1] : s).trim();
   }
+  // "홍길동 gildong@a.com", "홍길동<gildong@a.com>" → "홍길동 <gildong@a.com>" (이름 없으면 주소만)
+  function normalizeAddr(s) {
+    s = s.trim();
+    const m = s.match(/^(.*?)[\s<]*([^\s<>]+@[^\s<>]+?)>?$/);
+    if (!m) return s;
+    const name = m[1].replace(/["']/g, "").trim();
+    return name ? `${name} <${m[2]}>` : m[2];
+  }
   function isValidEmail(s) {
     return /^[^\s@<>(),;]+@[^\s@<>(),;]+\.[A-Za-z]{2,}$/.test(extractEmail(s));
   }
@@ -153,6 +161,7 @@
   const chipFields = {};
   document.querySelectorAll(".chips").forEach((box) => {
     const input = box.querySelector("input");
+    const max = Number(box.dataset.max) || 0; // 보내는 사람: 1명
     let items = [];
 
     function render() {
@@ -171,12 +180,17 @@
         chip.append(text, x);
         box.insertBefore(chip, input);
       });
+      input.style.display = max && items.length >= max ? "none" : "";
     }
     function commit() {
       const raw = input.value;
       // "이름 <주소>" 형식 안의 쉼표는 보존하고, 그 외 쉼표·세미콜론·줄바꿈으로 분리
-      const parts = raw.split(/[,;\n]+(?![^<]*>)/).map((s) => s.trim()).filter(Boolean);
-      if (parts.length) { items.push(...parts); input.value = ""; render(); saveDraft(); }
+      const parts = raw.split(/[,;\n]+(?![^<]*>)/).map(normalizeAddr).filter(Boolean);
+      if (parts.length) {
+        items.push(...parts);
+        if (max) items = items.slice(0, max);
+        input.value = ""; render(); saveDraft();
+      }
     }
     input.addEventListener("keydown", (e) => {
       if (e.isComposing) return;
@@ -246,7 +260,7 @@
   });
 
   // ---------- 임시 저장: 이 브라우저(자동) + 서버(아래 '서버 임시저장'), 첨부파일 제외 ----------
-  const textIds = ["studentNo", "studentName", "sender", "subject", "body", "signature"];
+  const textIds = ["studentNo", "studentName", "subject", "body", "signature"];
   let saveTimer, dirty = false, localSavedAt = "", serverSavedAt = "";
   const hhmm = (d) => (d ? new Date(d) : new Date()).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
   function showSaved(err) {
@@ -259,6 +273,7 @@
   function collect() {
     const d = {};
     textIds.forEach((id) => (d[id] = $(id).value));
+    d.sender = chipFields.from.get()[0] || "";
     d.to = chipFields.to.get(); d.cc = chipFields.cc.get(); d.bcc = chipFields.bcc.get();
     return d;
   }
@@ -277,11 +292,12 @@
     try { d = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null"); } catch (_) {}
     if (!d) return;
     textIds.forEach((id) => { if (typeof d[id] === "string") $(id).value = d[id]; });
+    chipFields.from.set(d.sender ? [d.sender] : []);
     chipFields.to.set(d.to); chipFields.cc.set(d.cc); chipFields.bcc.set(d.bcc);
   }
   function clearAll() {
     textIds.forEach((id) => ($(id).value = ""));
-    ["to", "cc", "bcc"].forEach((k) => chipFields[k].set([]));
+    ["from", "to", "cc", "bcc"].forEach((k) => chipFields[k].set([]));
     files = []; renderFiles();
     try { localStorage.removeItem(DRAFT_KEY); localStorage.removeItem(DRAFT_ID_KEY); } catch (_) {}
     draftId = null; dirty = false; localSavedAt = ""; serverSavedAt = ""; showSaved();
@@ -347,7 +363,7 @@
     if (!d.studentNo.trim()) errors.push("학번을 입력하세요.");
     if (!d.studentName.trim()) errors.push("이름을 입력하세요.");
     if (!d.to.length) errors.push("받는 사람을 한 명 이상 입력하세요.");
-    const bad = [...d.to, ...d.cc, ...d.bcc].filter((a) => !isValidEmail(a));
+    const bad = [d.sender, ...d.to, ...d.cc, ...d.bcc].filter((a) => a && !isValidEmail(a));
     if (bad.length) errors.push("이메일 주소 형식이 올바르지 않습니다: " + bad.join(", "));
     if (!d.subject.trim()) warns.push("제목이 비어 있습니다.");
     if (!d.body.trim()) warns.push("본문이 비어 있습니다.");
@@ -462,7 +478,8 @@
     if (!error && data && data.ok) {
       if (confirm(`선생님이 복원을 허용한 작성 내용이 있습니다 (${hhmm(data.updated_at)} 저장).\n지금 화면의 내용을 이것으로 바꿀까요?`)) {
         const d = data.data || {};
-        ["sender", "subject", "body", "signature"].forEach((id) => { $(id).value = typeof d[id] === "string" ? d[id] : ""; });
+        ["subject", "body", "signature"].forEach((id) => { $(id).value = typeof d[id] === "string" ? d[id] : ""; });
+        chipFields.from.set(d.sender ? [d.sender] : []);
         chipFields.to.set(d.to); chipFields.cc.set(d.cc); chipFields.bcc.set(d.bcc);
         draftId = data.id;
         try { localStorage.setItem(DRAFT_ID_KEY, draftId); } catch (_) {}
