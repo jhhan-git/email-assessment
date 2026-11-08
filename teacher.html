@@ -46,6 +46,9 @@
     .tabs button.on { background: var(--primary); color: #fff; font-weight: 600; }
     .tag.ok { background: var(--ok-soft); color: var(--ok); }
     .tag.wait { background: var(--primary-soft); color: #174ea6; }
+    .class-row select { padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 15px; background: var(--surface); }
+    .class-row code { background: var(--surface-2); padding: 2px 6px; border-radius: 4px; color: var(--text); word-break: break-all; }
+    .tag.cls { background: var(--primary); color: #fff; }
     .help { font-size: 13px; color: var(--muted); background: var(--surface-2); border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; }
 
     @media (max-width: 860px) {
@@ -83,6 +86,11 @@
     </form>
 
     <section id="appView" class="hidden">
+      <div class="card exam class-row hidden" id="classRow">
+        <b>반</b>
+        <select id="classSel"></select>
+        <span class="count" id="classLinkBox">학생 주소 <code id="classLink"></code> <button class="btn" id="copyLinkBtn" type="button">복사</button></span>
+      </div>
       <div class="card exam">
         <b>시험 상태</b>
         <span class="pill" id="examPill">확인 중…</span>
@@ -117,7 +125,39 @@
     return;
   }
   const sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
-  let rows = [], drafts = [], selectedId = null, mode = "sub", exam = null;
+  let rows = [], drafts = [], selectedId = null, mode = "sub", exam = null, examNote = "";
+
+  // ---------- 반 선택 (config.js의 CLASSES) ----------
+  const CLASSES = CFG.CLASSES || [];
+  const ALL = "*";
+  let curClass = ALL;
+  const className = (id) => (CLASSES.find((c) => c.id === id) || {}).name || (id ? id + "반" : "반 없음");
+  const studentBase = location.href.replace(/teacher\.html.*$/, "").replace(/[?#].*$/, "");
+  if (CLASSES.length) {
+    $("classRow").classList.remove("hidden");
+    const sel = $("classSel");
+    CLASSES.forEach((c) => sel.appendChild(Object.assign(document.createElement("option"), { value: c.id, textContent: c.name })));
+    sel.appendChild(Object.assign(document.createElement("option"), { value: ALL, textContent: "전체 반 보기" }));
+    try { const saved = localStorage.getItem("teacher-class"); if (saved && [...sel.options].some((o) => o.value === saved)) curClass = saved; } catch (_) {}
+    if (curClass === ALL) curClass = CLASSES[0].id;
+    sel.value = curClass;
+    sel.addEventListener("change", () => {
+      curClass = sel.value;
+      try { localStorage.setItem("teacher-class", curClass); } catch (_) {}
+      selectedId = null; $("detail").innerHTML = '<div class="empty">왼쪽 목록에서 선택하세요.</div>';
+      renderClassLink(); loadExam(); renderList();
+    });
+    $("copyLinkBtn").addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText($("classLink").textContent); $("copyLinkBtn").textContent = "복사됨 ✓"; }
+      catch (_) { prompt("주소를 복사하세요", $("classLink").textContent); }
+      setTimeout(() => ($("copyLinkBtn").textContent = "복사"), 1500);
+    });
+  }
+  function renderClassLink() {
+    $("classLinkBox").classList.toggle("hidden", curClass === ALL);
+    $("classLink").textContent = studentBase + "?class=" + encodeURIComponent(curClass);
+  }
+  if (CLASSES.length) renderClassLink();
 
   function el(tag, cls, text) { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
   function btn(label, cls, onClick) { const b = el("button", "btn " + (cls || ""), label); b.type = "button"; b.onclick = onClick; return b; }
@@ -163,14 +203,14 @@
   function renderExam() {
     const pill = $("examPill"), info = $("examInfo"), tb = $("toggleBtn");
     if (!exam) {
-      pill.className = "pill"; pill.textContent = "설정 필요";
-      info.textContent = "Supabase에서 update-v2.sql을 실행하세요.";
+      pill.className = "pill"; pill.textContent = examNote ? "반 선택" : "설정 필요";
+      info.textContent = examNote || "Supabase에서 update-v2.sql을 실행하세요.";
       ["toggleBtn", "setCloseBtn", "clearCloseBtn", "closeAt"].forEach((id) => ($(id).disabled = true));
       return;
     }
     ["toggleBtn", "setCloseBtn", "clearCloseBtn", "closeAt"].forEach((id) => ($(id).disabled = false));
     pill.className = "pill " + (exam.open ? "open" : "closed");
-    pill.textContent = exam.open ? "진행 중 · 작성/제출 가능" : "마감됨 · 작성/제출 불가";
+    pill.textContent = (CLASSES.length ? className(curClass) + " · " : "") + (exam.open ? "진행 중 · 작성/제출 가능" : "마감됨 · 작성/제출 불가");
     const ca = exam.closes_at ? new Date(exam.closes_at) : null;
     if (ca && exam.open) {
       const mins = Math.max(0, Math.round((ca - new Date(exam.now)) / 60000));
@@ -178,27 +218,35 @@
     } else if (ca && !exam.open && exam.manual_open) {
       info.textContent = `${fmtFull(ca)}에 자동 마감됨`;
     } else info.textContent = "";
-    if (ca && document.activeElement !== $("closeAt")) $("closeAt").value = toLocalInput(ca);
+    if (document.activeElement !== $("closeAt")) $("closeAt").value = ca ? toLocalInput(ca) : "";
     tb.textContent = exam.open ? "지금 마감하기" : "다시 열기";
     tb.className = "btn " + (exam.open ? "danger" : "primary");
   }
   async function loadExam() {
-    const { data, error } = await sb.rpc("exam_status");
+    examNote = "";
+    if (CLASSES.length && curClass === ALL) {
+      exam = null; examNote = "시험 시작·마감은 위에서 반을 고른 뒤 바꿀 수 있습니다."; return renderExam();
+    }
+    const want = curClass;
+    const { data, error } = await sb.rpc("exam_status", CLASSES.length ? { p_class: curClass } : {});
+    if (want !== curClass) return; // 그사이 반을 바꿈
     exam = error ? null : data;
+    if (error && CLASSES.length && error.code === "PGRST202") examNote = "반별 시험 관리를 쓰려면 Supabase에서 update-v3.sql을 실행하세요.";
     renderExam();
   }
   async function setExam(open, closesAt) {
-    const { data, error } = await sb.rpc("set_exam_status", { p_open: open, p_closes_at: closesAt });
+    const { data, error } = await sb.rpc("set_exam_status", CLASSES.length
+      ? { p_class: curClass, p_open: open, p_closes_at: closesAt } : { p_open: open, p_closes_at: closesAt });
     if (error) { alert("변경 실패: " + error.message); return; }
     exam = data; renderExam();
   }
   $("toggleBtn").addEventListener("click", () => {
     if (exam.open) {
-      if (!confirm("지금 마감할까요?\n학생 화면이 20초 안에 잠기고, 더 이상 작성·제출할 수 없습니다.")) return;
+      if (!confirm(`${CLASSES.length ? className(curClass) + "을(를) " : ""}지금 마감할까요?\n학생 화면이 20초 안에 잠기고, 더 이상 작성·제출할 수 없습니다.`)) return;
       setExam(false, exam.closes_at);
     } else {
       const ca = exam.closes_at && new Date(exam.closes_at) > new Date(exam.now) ? exam.closes_at : null;
-      if (!confirm("다시 열까요? 학생들이 다시 작성·제출할 수 있게 됩니다." + (exam.closes_at && !ca ? "\n(지난 마감 예약은 지워집니다)" : ""))) return;
+      if (!confirm(`${CLASSES.length ? className(curClass) + "을(를) " : ""}다시 열까요? 학생들이 다시 작성·제출할 수 있게 됩니다.` + (exam.closes_at && !ca ? "\n(지난 마감 예약은 지워집니다)" : ""))) return;
       setExam(true, ca);
     }
   });
@@ -236,17 +284,22 @@
   }
 
   function submitCounts() {
-    const c = {}; rows.forEach((r) => (c[key(r.student_no)] = (c[key(r.student_no)] || 0) + 1)); return c;
+    const c = {};
+    rows.filter((r) => !CLASSES.length || curClass === ALL || (r.class_id || "") === curClass)
+      .forEach((r) => (c[key(r.student_no)] = (c[key(r.student_no)] || 0) + 1));
+    return c;
   }
+  const inClass = (arr) => (CLASSES.length && curClass !== ALL ? arr.filter((r) => (r.class_id || "") === curClass) : arr);
   const draftAsMail = (d) => {
     const x = d.data || {};
     return { id: d.id, student_no: d.student_no, student_name: d.student_name, created_at: d.updated_at, sender: x.sender || "",
       to_addrs: x.to || [], cc_addrs: x.cc || [], bcc_addrs: x.bcc || [], subject: x.subject || "", body: x.body || "", signature: x.signature || "",
-      attachments: [], restore_until: d.restore_until, _draft: true };
+      attachments: [], restore_until: d.restore_until, class_id: d.class_id, _draft: true };
   };
 
   function visibleRows() {
     let list = mode === "sub" ? rows : drafts.map(draftAsMail);
+    if (CLASSES.length && curClass !== ALL) list = list.filter((r) => (r.class_id || "") === curClass);
     if ($("latestOnly").checked) {
       const seen = new Set();
       list = list.filter((r) => { const k = key(r.student_no); if (seen.has(k)) return false; seen.add(k); return true; });
@@ -261,8 +314,8 @@
     $("tabSub").classList.toggle("on", mode === "sub"); $("tabDraft").classList.toggle("on", mode === "draft");
     $("latestOnly").parentElement.lastChild.textContent = mode === "sub" ? " 학번별 마지막 제출만" : " 학번별 최근 것만";
     $("count").textContent = mode === "sub"
-      ? `${list.length}건 표시 / 전체 ${rows.length}건 · 학생 ${Object.keys(counts).length}명`
-      : `${list.length}건 표시 / 전체 ${drafts.length}건 · 미제출 ${new Set(drafts.filter((d) => !counts[key(d.student_no)]).map((d) => key(d.student_no))).size}명`;
+      ? `${list.length}건 표시 / 전체 ${inClass(rows).length}건 · 학생 ${Object.keys(counts).length}명`
+      : `${list.length}건 표시 / 전체 ${inClass(drafts).length}건 · 미제출 ${new Set(inClass(drafts).filter((d) => !counts[key(d.student_no)]).map((d) => key(d.student_no))).size}명`;
     const box = $("list"); box.innerHTML = "";
     if (!list.length) {
       box.appendChild(el("div", null, mode === "sub" ? "제출물이 없습니다." : "자동저장된 작성 내용이 없습니다.")).style.cssText = "padding:16px;color:var(--muted)";
@@ -273,6 +326,7 @@
       const top = el("div", "top");
       const who = el("span", "who", `${r.student_no} ${r.student_name}`);
       const n = counts[key(r.student_no)] || 0;
+      if (CLASSES.length && curClass === ALL) who.appendChild(el("span", "tag cls", className(r.class_id)));
       if (mode === "sub" && n > 1) who.appendChild(el("span", "tag", `${n}회 제출`));
       if (mode === "draft") who.appendChild(el("span", "tag" + (n ? " ok" : ""), n ? "제출함" : "미제출"));
       if (r.restore_until && new Date(r.restore_until) > new Date()) who.appendChild(el("span", "tag wait", "복원 대기"));
@@ -302,14 +356,15 @@
     if (r._draft) actions.append(btn("복원 허용 (10분)", "primary", () => allowRestore(r)));
     actions.append(btn("인쇄", "", () => window.print()), btn("삭제", "danger", () => del(r)));
     d.appendChild(actions);
+    const clsLabel = CLASSES.length ? className(r.class_id) + " · " : "";
     if (r._draft) {
       d.appendChild(el("div", "help",
         "학생 PC가 재부팅되었다면 [복원 허용]을 누른 뒤, 학생에게 같은 학번·이름을 다시 입력하라고 하세요. " +
         "10분 안에 학생 화면에 '불러올까요?' 안내가 뜹니다(한 번 불러가면 끝). 첨부파일은 자동저장되지 않습니다."));
-      d.appendChild(el("div", "stu", `${r.student_no} ${r.student_name} · 마지막 자동저장 ${fmtFull(r.created_at)}` +
+      d.appendChild(el("div", "stu", `${clsLabel}${r.student_no} ${r.student_name} · 마지막 자동저장 ${fmtFull(r.created_at)}` +
         (r.restore_until && new Date(r.restore_until) > new Date() ? ` · 복원 대기 중(~${new Date(r.restore_until).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })})` : "")));
     } else {
-      d.appendChild(el("div", "stu", `${r.student_no} ${r.student_name} · 제출 ${fmtFull(r.created_at)} · 접수번호 ${r.id.slice(0, 8).toUpperCase()}`));
+      d.appendChild(el("div", "stu", `${clsLabel}${r.student_no} ${r.student_name} · 제출 ${fmtFull(r.created_at)} · 접수번호 ${r.id.slice(0, 8).toUpperCase()}`));
     }
 
     const v = el("div", "mailview");
@@ -341,7 +396,7 @@
   }
 
   async function allowRestore(r) {
-    if (exam && !exam.open) { alert("시험이 마감된 상태에서는 복원할 수 없습니다. 먼저 [다시 열기]를 누르세요."); return; }
+    if (exam && !exam.open && (!CLASSES.length || (r.class_id || "") === curClass)) { alert("시험이 마감된 상태에서는 복원할 수 없습니다. 먼저 [다시 열기]를 누르세요."); return; }
     const { error } = await sb.rpc("allow_restore", { p_id: r.id });
     if (error) { alert("복원 허용 실패: " + error.message); return; }
     const dr = drafts.find((x) => x.id === r.id);
@@ -369,11 +424,11 @@
   // ---------- CSV ----------
   $("csvBtn").addEventListener("click", () => {
     const counts = submitCounts();
-    const head = [mode === "sub" ? "제출시각" : "마지막 자동저장", "학번", "이름", "보내는 사람", "받는 사람", "참조", "숨은 참조", "제목", "본문", "서명",
+    const head = [...(CLASSES.length ? ["반"] : []), mode === "sub" ? "제출시각" : "마지막 자동저장", "학번", "이름", "보내는 사람", "받는 사람", "참조", "숨은 참조", "제목", "본문", "서명",
       mode === "sub" ? "첨부파일" : "제출 여부", mode === "sub" ? "접수번호" : "구분"];
     const lines = [head];
     visibleRows().forEach((r) => lines.push([
-      fmtFull(r.created_at), r.student_no, r.student_name, r.sender || "",
+      ...(CLASSES.length ? [className(r.class_id)] : []), fmtFull(r.created_at), r.student_no, r.student_name, r.sender || "",
       r.to_addrs.join(", "), r.cc_addrs.join(", "), r.bcc_addrs.join(", "), r.subject || "", r.body || "", r.signature || "",
       mode === "sub" ? (r.attachments || []).map((f) => f.name).join(", ") : (counts[key(r.student_no)] ? "제출함" : "미제출"),
       mode === "sub" ? r.id.slice(0, 8).toUpperCase() : "자동저장",
@@ -381,7 +436,7 @@
     const csv = "﻿" + lines.map((l) => l.map((c) => '"' + String(c).replace(/"/g, '""') + '"').join(",")).join("\r\n");
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    a.download = `이메일수행평가_${mode === "sub" ? "제출물" : "자동저장"}_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `이메일수행평가_${CLASSES.length && curClass !== ALL ? className(curClass) + "_" : ""}${mode === "sub" ? "제출물" : "자동저장"}_${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   });

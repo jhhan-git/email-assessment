@@ -8,6 +8,13 @@ window.APP_CONFIG = {
   MAX_FILES: 5,            // 첨부파일 최대 개수
   MAX_FILE_MB: 10,         // 첨부파일 1개당 최대 용량(MB) — setup.sql의 버킷 제한과 맞추세요
 
+  // 반별 사이트: 학생 주소 끝에 ?class=아이디 를 붙여 반을 구분합니다. (예: .../email-assessment/?class=1)
+  // id는 영문·숫자만, name은 화면에 보이는 이름. 반을 늘리려면 줄을 추가하세요. 비우면 반 구분 없이 하나의 사이트로 동작합니다.
+  CLASSES: [
+    { id: "1", name: "1반" },
+    { id: "2", name: "2반" }
+  ],
+
   // 학생 화면의 [과제 파일]에서 내려받을 파일 (files 폴더에 넣고 여기에 적기). 비우면 칸이 사라집니다.
   // path: 실제 파일 위치(영문), name: 학생이 내려받을 때의 파일 이름
   ASSIGNMENT_FILES: [

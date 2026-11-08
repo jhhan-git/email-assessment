@@ -28,6 +28,12 @@
       <b>시험이 종료되었습니다.</b> 더 이상 작성하거나 제출할 수 없습니다.
     </div>
 
+    <section id="classPicker" class="card class-picker hidden">
+      <h2>반을 선택하세요</h2>
+      <p>선생님이 알려 준 반을 고르세요. 다른 반을 고르면 제출물이 다른 반으로 들어갑니다.</p>
+      <div class="class-list"></div>
+    </section>
+
     <section id="composeView">
       <div class="card student">
         <span class="title">응시자 정보</span>
@@ -120,15 +126,33 @@
 <script>
 (function () {
   const CFG = Object.assign({ TITLE: "업무용 이메일 작성 수행평가", MAX_FILES: 5, MAX_FILE_MB: 10 }, window.APP_CONFIG || {});
-  const DRAFT_KEY = "email-assessment-draft-v1";
-  const DRAFT_ID_KEY = "email-assessment-draft-id-v1"; // 이 브라우저의 서버 자동저장 칸 번호
-  const DRAFT_OWNER_KEY = "email-assessment-draft-owner-v1"; // 그 칸의 주인 "학번|이름"
-  let draftId = null, draftOwner = "";
-  try { draftId = localStorage.getItem(DRAFT_ID_KEY); draftOwner = localStorage.getItem(DRAFT_OWNER_KEY) || ""; } catch (_) {}
   const $ = (id) => document.getElementById(id);
 
-  document.title = CFG.TITLE;
+  // ---------- 반별 사이트: 주소의 ?class=1 로 반을 정함 ----------
+  const CLASSES = CFG.CLASSES || [];
+  const cls = CLASSES.find((c) => c.id === new URLSearchParams(location.search).get("class")) || null;
+  document.title = CFG.TITLE + (cls ? " · " + cls.name : "");
   $("appTitle").textContent = CFG.TITLE;
+  if (cls) $("appTitle").appendChild(Object.assign(document.createElement("span"), { className: "class-badge", textContent: cls.name }));
+  if (CLASSES.length && !cls) {
+    // 반 주소 없이 들어온 경우: 반 고르기 화면만 보여 줌
+    $("composeView").classList.add("hidden");
+    const box = $("classPicker"); box.classList.remove("hidden");
+    CLASSES.forEach((c) => {
+      const a = Object.assign(document.createElement("a"), { className: "btn primary", href: "?class=" + encodeURIComponent(c.id), textContent: c.name });
+      box.querySelector(".class-list").appendChild(a);
+    });
+    return;
+  }
+
+  // 브라우저 저장 공간도 반마다 따로 씀 → 다른 반 학생 내용은 읽지 않음
+  const KS = cls ? ":" + cls.id : "";
+  const DRAFT_KEY = "email-assessment-draft-v1" + KS;
+  const DRAFT_ID_KEY = "email-assessment-draft-id-v1" + KS; // 이 브라우저의 서버 자동저장 칸 번호
+  const DRAFT_OWNER_KEY = "email-assessment-draft-owner-v1" + KS; // 그 칸의 주인 "학번|이름"
+  let draftId = null, draftOwner = "";
+  try { draftId = localStorage.getItem(DRAFT_ID_KEY); draftOwner = localStorage.getItem(DRAFT_OWNER_KEY) || ""; } catch (_) {}
+  let classApi = !!cls; // update-v3.sql 실행 전이면 checkStatus에서 false로 바뀜(예전 방식)
 
   // 과제 파일 내려받기 목록
   (CFG.ASSIGNMENT_FILES || []).forEach((f) => {
@@ -417,7 +441,7 @@
         const f = files[i];
         status.textContent = `첨부파일 업로드 중… (${i + 1}/${files.length})`;
         const ext = (f.name.match(/\.([A-Za-z0-9]{1,10})$/) || ["", "bin"])[1].toLowerCase();
-        const path = `${id}/${i + 1}.${ext}`; // 저장소 경로는 영문만 가능 → 원래 파일명은 DB에 기록
+        const path = `${classApi ? cls.id + "/" : ""}${id}/${i + 1}.${ext}`; // 저장소 경로는 영문만 가능 → 원래 파일명은 DB에 기록
         const { error } = await sb.storage.from("attachments").upload(path, f, { contentType: f.type || "application/octet-stream", upsert: false });
         if (error) throw new Error(`"${f.name}" 업로드 실패: ${error.message}`);
         meta.push({ name: f.name, size: f.size, type: f.type || "", path });
@@ -431,6 +455,7 @@
         to_addrs: d.to, cc_addrs: d.cc, bcc_addrs: d.bcc,
         subject: d.subject, body: d.body, signature: d.signature,
         attachments: meta,
+        ...(classApi ? { class_id: cls.id } : {}),
       };
       const { error } = await sb.from("submissions").insert(row);
       if (error) throw new Error(error.message);
@@ -475,7 +500,8 @@
     }
     serverSaving = true;
     const wasDirty = dirty; dirty = false;
-    const { data, error } = await sb.rpc("save_draft", { p_id: draftId, p_no: d.studentNo, p_name: d.studentName, p_data: d });
+    const args = { p_id: draftId, p_no: d.studentNo, p_name: d.studentName, p_data: d };
+    const { data, error } = await sb.rpc("save_draft", classApi ? { ...args, p_class: cls.id } : args);
     serverSaving = false;
     if (error || !data || !data.ok) {
       dirty = dirty || wasDirty;
@@ -494,7 +520,7 @@
     const no = $("studentNo").value.trim(), name = $("studentName").value.trim();
     if (!no || !name) return;
     restoreAsking = true;
-    const { data, error } = await sb.rpc("claim_restore", { p_no: no, p_name: name });
+    const { data, error } = await sb.rpc("claim_restore", classApi ? { p_class: cls.id, p_no: no, p_name: name } : { p_no: no, p_name: name });
     if (!error && data && data.ok) {
       if (confirm(`선생님이 복원을 허용한 작성 내용이 있습니다 (${hhmm(data.updated_at)} 저장).\n지금 화면의 내용을 이것으로 바꿀까요?`)) {
         const d = data.data || {};
@@ -536,7 +562,11 @@
   }
   async function checkStatus() {
     if (!configured) return;
-    const { data, error } = await sb.rpc("exam_status");
+    let { data, error } = await sb.rpc("exam_status", classApi ? { p_class: cls.id } : {});
+    if (classApi && error && error.code === "PGRST202") { // update-v3.sql 실행 전 → 예전 방식
+      classApi = false;
+      ({ data, error } = await sb.rpc("exam_status"));
+    }
     if (error || !data) return; // update-v2.sql 실행 전이면 항상 열린 것으로 취급
     clockOffset = new Date(data.now).getTime() - Date.now();
     closesAt = data.closes_at ? new Date(data.closes_at).getTime() : null;

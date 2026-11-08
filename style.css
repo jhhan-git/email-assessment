@@ -214,3 +214,12 @@ main { max-width: 920px; margin: 20px auto 60px; padding: 0 16px; }
 .task-files .tf-list { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 8px; }
 .task-files a.attach { color: var(--primary); text-decoration: none; padding: 6px 12px; }
 .task-files a.attach:hover { background: var(--primary-soft); }
+.class-badge {
+  display: inline-block; margin-left: 10px; padding: 2px 10px; border-radius: 12px; font-size: 14px; vertical-align: 2px;
+  background: var(--primary); color: #fff;
+}
+.class-picker { padding: 28px 20px; text-align: center; }
+.class-picker h2 { margin: 0 0 6px; }
+.class-picker p { color: var(--muted); margin: 0 0 18px; }
+.class-picker .class-list { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+.class-picker .btn { text-decoration: none; font-size: 16px; padding: 10px 26px; }

@@ -19,6 +19,7 @@ style.css           디자인
 vendor/             Supabase 라이브러리 (학교망에서 CDN이 막혀도 동작하도록 포함)
 supabase/setup.sql      DB·저장소·권한 설정 (최초 1회 실행)
 supabase/update-v2.sql  시험 마감·자동저장 기능 (setup.sql 다음에 1회 실행)
+supabase/update-v3.sql  반별 사이트 (update-v2.sql 다음에 1회 실행)
 ```
 
 ---
@@ -46,6 +47,8 @@ supabase/update-v2.sql  시험 마감·자동저장 기능 (setup.sql 다음에 
    를 `config.js`에 붙여넣습니다.
 6. **시험 마감·자동저장 기능 켜기**
    `supabase/update-v2.sql` 전체를 SQL Editor에 붙여넣고 **Run** (3번과 같은 방법).
+7. **반별 사이트 기능 켜기**
+   `supabase/update-v3.sql` 전체를 SQL Editor에 붙여넣고 **Run**.
    ```js
    SUPABASE_URL: "https://xxxx.supabase.co",
    SUPABASE_ANON_KEY: "eyJhbGciOi...",
@@ -67,6 +70,19 @@ supabase/update-v2.sql  시험 마감·자동저장 기능 (setup.sql 다음에 
 
 - 학생용 주소에서 직접 한 번 작성·제출 → 교사용 페이지에서 보이는지 확인
 - 테스트 제출물은 교사용 페이지에서 **삭제**
+
+## 반별 사이트
+
+반마다 학생 주소가 다릅니다. 반 목록은 `config.js`의 `CLASSES`에서 정합니다(반을 늘리려면 줄 추가).
+
+| 반 | 학생 주소 |
+|---|---|
+| 1반 | `https://<깃허브아이디>.github.io/<저장소이름>/?class=1` |
+| 2반 | `https://<깃허브아이디>.github.io/<저장소이름>/?class=2` |
+
+- 반 주소 없이 들어오면 반을 고르는 화면이 나옵니다.
+- 반마다 제출물·자동저장·시험 시작/마감이 따로 관리되고, 브라우저 저장 공간도 반마다 따로 씁니다. 같은 PC에서도 다른 반 학생의 작성 내용을 읽지 않습니다.
+- 교사 화면 맨 위에서 반을 고르면 그 반의 시험 상태·제출물·자동저장만 보이고, 학생 주소를 복사할 수 있습니다. "전체 반 보기"는 모든 반을 함께 보여 줍니다(시험 상태는 바꿀 수 없음).
 
 ## 평가 운영 팁
 
