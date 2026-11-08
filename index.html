@@ -122,8 +122,9 @@
   const CFG = Object.assign({ TITLE: "업무용 이메일 작성 수행평가", MAX_FILES: 5, MAX_FILE_MB: 10 }, window.APP_CONFIG || {});
   const DRAFT_KEY = "email-assessment-draft-v1";
   const DRAFT_ID_KEY = "email-assessment-draft-id-v1"; // 이 브라우저의 서버 자동저장 칸 번호
-  let draftId = null;
-  try { draftId = localStorage.getItem(DRAFT_ID_KEY); } catch (_) {}
+  const DRAFT_OWNER_KEY = "email-assessment-draft-owner-v1"; // 그 칸의 주인 "학번|이름"
+  let draftId = null, draftOwner = "";
+  try { draftId = localStorage.getItem(DRAFT_ID_KEY); draftOwner = localStorage.getItem(DRAFT_OWNER_KEY) || ""; } catch (_) {}
   const $ = (id) => document.getElementById(id);
 
   document.title = CFG.TITLE;
@@ -281,26 +282,43 @@
     dirty = true;
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
+      if (pendingLocal) return; // 앞 사람 저장분 처리 전에는 덮어쓰지 않음
       try {
         localStorage.setItem(DRAFT_KEY, JSON.stringify(collect()));
         localSavedAt = hhmm(); showSaved();
       } catch (_) {}
     }, 500);
   }
+  // 이 PC에 남은 저장분은 바로 보여주지 않고, 같은 학번·이름을 입력했을 때만 불러옴
+  // (앞 반 학생이 쓰던 내용이 다음 학생 화면에 뜨지 않게)
+  let pendingLocal = null;
   function loadDraft() {
-    let d = null;
-    try { d = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null"); } catch (_) {}
-    if (!d) return;
-    textIds.forEach((id) => { if (typeof d[id] === "string") $(id).value = d[id]; });
-    chipFields.from.set(d.sender ? [d.sender] : []);
-    chipFields.to.set(d.to); chipFields.cc.set(d.cc); chipFields.bcc.set(d.bcc);
+    try { pendingLocal = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null"); } catch (_) {}
+    if (pendingLocal && !(pendingLocal.studentNo || "").trim()) pendingLocal = null;
   }
+  function resolveLocal() {
+    if (!pendingLocal) return;
+    const no = $("studentNo").value.trim(), name = $("studentName").value.trim();
+    if (!no || !name) return;
+    const d = pendingLocal; pendingLocal = null;
+    if ((d.studentNo || "").trim() === no && (d.studentName || "").trim() === name) {
+      const cur = collect();
+      if ((cur.body.trim() || cur.subject.trim()) && !confirm("이 PC에 저장된 작성 내용이 있습니다. 불러올까요?")) { saveDraft(); return; }
+      ["subject", "body", "signature"].forEach((id) => { if (typeof d[id] === "string") $(id).value = d[id]; });
+      chipFields.from.set(d.sender ? [d.sender] : []);
+      chipFields.to.set(d.to); chipFields.cc.set(d.cc); chipFields.bcc.set(d.bcc);
+    } else {
+      try { localStorage.removeItem(DRAFT_KEY); } catch (_) {}
+    }
+    saveDraft();
+  }
+  ["studentNo", "studentName"].forEach((id) => $(id).addEventListener("change", resolveLocal));
   function clearAll() {
     textIds.forEach((id) => ($(id).value = ""));
     ["from", "to", "cc", "bcc"].forEach((k) => chipFields[k].set([]));
     files = []; renderFiles();
-    try { localStorage.removeItem(DRAFT_KEY); localStorage.removeItem(DRAFT_ID_KEY); } catch (_) {}
-    draftId = null; dirty = false; localSavedAt = ""; serverSavedAt = ""; showSaved();
+    try { [DRAFT_KEY, DRAFT_ID_KEY, DRAFT_OWNER_KEY].forEach((k) => localStorage.removeItem(k)); } catch (_) {}
+    draftId = null; draftOwner = ""; pendingLocal = null; dirty = false; localSavedAt = ""; serverSavedAt = ""; showSaved();
   }
   textIds.forEach((id) => $(id).addEventListener("input", saveDraft));
   loadDraft();
@@ -449,9 +467,11 @@
     if (!configured || locked || serverSaving) return;
     const d = collect();
     if (!d.studentNo.trim() || !d.studentName.trim()) return;
-    if (!draftId) {
-      draftId = uuid();
-      try { localStorage.setItem(DRAFT_ID_KEY, draftId); } catch (_) {}
+    // 학번·이름이 바뀌면(다음 학생) 새 칸에 저장 → 앞 학생의 서버 저장분을 덮어쓰지 않음
+    const owner = d.studentNo.trim() + "|" + d.studentName.trim();
+    if (!draftId || draftOwner !== owner) {
+      draftId = uuid(); draftOwner = owner;
+      try { localStorage.setItem(DRAFT_ID_KEY, draftId); localStorage.setItem(DRAFT_OWNER_KEY, owner); } catch (_) {}
     }
     serverSaving = true;
     const wasDirty = dirty; dirty = false;
@@ -481,8 +501,8 @@
         ["subject", "body", "signature"].forEach((id) => { $(id).value = typeof d[id] === "string" ? d[id] : ""; });
         chipFields.from.set(d.sender ? [d.sender] : []);
         chipFields.to.set(d.to); chipFields.cc.set(d.cc); chipFields.bcc.set(d.bcc);
-        draftId = data.id;
-        try { localStorage.setItem(DRAFT_ID_KEY, draftId); } catch (_) {}
+        draftId = data.id; draftOwner = no + "|" + name; pendingLocal = null;
+        try { localStorage.setItem(DRAFT_ID_KEY, draftId); localStorage.setItem(DRAFT_OWNER_KEY, draftOwner); } catch (_) {}
         serverSavedAt = hhmm(data.updated_at);
         saveDraft(); dirty = false;
         alert("복원했습니다." + (files.length ? "" : " 첨부파일은 다시 첨부하세요."));
