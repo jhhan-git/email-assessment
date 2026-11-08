@@ -194,9 +194,21 @@
       items.forEach((addr, i) => {
         const chip = document.createElement("span");
         chip.className = "chip" + (isValidEmail(addr) ? "" : " invalid");
-        chip.title = isValidEmail(addr) ? addr : "올바른 이메일 형식이 아닙니다";
+        chip.title = (isValidEmail(addr) ? addr : "올바른 이메일 형식이 아닙니다") + " — 눌러서 고치기";
         const text = document.createElement("span");
         text.textContent = addr;
+        text.className = "chip-text";
+        // 칩을 누르면 입력칸으로 되돌려 고칠 수 있음 (mousedown: 입력칸 blur보다 먼저 처리)
+        text.addEventListener("mousedown", (e) => {
+          e.preventDefault(); e.stopPropagation();
+          const pending = input.value.trim();
+          items.splice(i, 1);
+          if (pending) items.push(...pending.split(/[,;\n]+(?![^<]*>)/).map(normalizeAddr).filter(Boolean));
+          if (max) items = items.slice(0, max - 1);
+          render();
+          input.value = addr; input.focus(); input.setSelectionRange(addr.length, addr.length);
+          saveDraft();
+        });
         const x = document.createElement("button");
         x.type = "button";
         x.setAttribute("aria-label", addr + " 삭제");
@@ -226,11 +238,18 @@
       }
     });
     input.addEventListener("blur", commit);
+    input.addEventListener("input", saveDraft);
     input.addEventListener("paste", () => setTimeout(commit, 0));
     box.addEventListener("click", () => input.focus());
 
     chipFields[box.dataset.field] = {
-      get: () => { commit(); return items.slice(); },
+      // finalize=true(미리보기·보내기)일 때만 입력 중인 글자를 칩으로 확정.
+      // 자동저장 때는 확정하지 않고 그대로 저장만 함 → 치는 도중에 칩이 되지 않음
+      get: (finalize) => {
+        if (finalize) commit();
+        const pending = input.value.trim();
+        return finalize || !pending ? items.slice() : [...items, pending];
+      },
       set: (arr) => { items = (arr || []).slice(); render(); },
     };
   });
@@ -295,11 +314,11 @@
     $("savedAt").textContent = err ? "⚠ " + err : parts.join(" · ");
     $("savedAt").style.color = err ? "#ffd5d1" : "";
   }
-  function collect() {
+  function collect(finalize) {
     const d = {};
     textIds.forEach((id) => (d[id] = $(id).value));
-    d.sender = chipFields.from.get()[0] || "";
-    d.to = chipFields.to.get(); d.cc = chipFields.cc.get(); d.bcc = chipFields.bcc.get();
+    d.sender = chipFields.from.get(finalize)[0] || "";
+    d.to = chipFields.to.get(finalize); d.cc = chipFields.cc.get(finalize); d.bcc = chipFields.bcc.get(finalize);
     return d;
   }
   function saveDraft() {
@@ -389,7 +408,7 @@
   function button(label, cls, onClick) { const b = el("button", "btn " + (cls || ""), label); b.type = "button"; b.addEventListener("click", onClick); return b; }
 
   $("previewBtn").addEventListener("click", () => {
-    openModal("미리보기 (받는 사람에게 보이는 모습)", [buildMailView(collect())], [button("닫기", "", closeModal)]);
+    openModal("미리보기 (받는 사람에게 보이는 모습)", [buildMailView(collect(true))], [button("닫기", "", closeModal)]);
   });
 
   $("resetBtn").addEventListener("click", () => {
@@ -400,7 +419,7 @@
   function listNode(cls, items) { const ul = el("ul", cls); items.forEach((t) => ul.appendChild(el("li", null, t))); return ul; }
 
   $("sendBtn").addEventListener("click", () => {
-    const d = collect();
+    const d = collect(true);
     const errors = [], warns = [];
     if (!d.studentNo.trim()) errors.push("학번을 입력하세요.");
     if (!d.studentName.trim()) errors.push("이름을 입력하세요.");

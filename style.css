@@ -223,3 +223,5 @@ main { max-width: 920px; margin: 20px auto 60px; padding: 0 16px; }
 .class-picker p { color: var(--muted); margin: 0 0 18px; }
 .class-picker .class-list { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
 .class-picker .btn { text-decoration: none; font-size: 16px; padding: 10px 26px; }
+.chip .chip-text { cursor: text; }
+.chip .chip-text:hover { text-decoration: underline dotted; }
